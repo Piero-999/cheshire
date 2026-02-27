@@ -112,37 +112,14 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   function automatic cheshire_cfg_t gen_cheshire_xilinx_cfg();
     cheshire_cfg_t ret  = DefaultCfg;
     ret.RtcFreq         = 1000000;
-  `ifdef USE_USB
-    ret.Usb = 1;
-  `else
-    ret.Usb = 0;
-  `endif
-  `ifdef USE_CFG_REGS
-    ret.RegExtNumSlv   = 1;
-    ret.RegExtNumRules = 1;
-    // Mirror the address map of the internal configuration registers.
-    // * 256K @ AXI: 0x4000_0000
-    // * 4K   @ AXI: 0x4100_0000
-    // * 256K @ Reg: 0x4200_0000
-    // * 4K   @ Reg: 0x4300_0000
-    ret.RegExtRegionIdx   [0] = 0;
-    ret.RegExtRegionStart [0] = 32'h4300_0000;
-    ret.RegExtRegionEnd   [0] = 32'h4300_1000;
-  `endif
-  `ifdef USE_VCLIC
-    ret.Clic = 1;
-    ret.ClicVsclic = 1;
-    ret.ClicVsprio = 1;
-    ret.ClicNumVsctxts = 4;
-    ret.ClicPrioWidth = 1;
-  `endif
-    ret.BusErr          = 0;
-    ret.SerialLink      = 0;
-    ret.SpiHost         = 1;
-    ret.Vga             = 0;
-    ret.I2c             = 0;
-    ret.Gpio            = 1;
-    ret.AxiExtNumSlv    = 1;
+    //ret.AxiExtNumSlv    = 1;
+
+    // LLC in bypass, DDR4 connessa direttamente
+    ret.LlcNotBypass      = 0;   // <-- bypass LLC (default è 1)
+    ret.LlcOutConnect     = 1;   // <-- mantieni la porta output verso DRAM
+    ret.LlcOutRegionStart = 'h8000_0000;
+    ret.LlcOutRegionEnd   = 64'h1_0000_0000;
+
     return ret;
   endfunction
 

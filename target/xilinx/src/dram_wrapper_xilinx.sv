@@ -97,6 +97,19 @@ module dram_wrapper_xilinx #(
   };
 `endif
 
+`ifdef TARGET_ZCU102
+  localparam dram_cfg_t cfg = '{
+    EnCdc         : 1,    // 333 MHz AXI (cf. CdcLogDepth)
+    CdcLogDepth   : 5,
+    IdWidth       : 8,
+    AddrWidth     : 32,
+    DataWidth     : 512,
+    StrobeWidth   : 64,
+    MaxUniqIds    : 8,    // TODO: suboptimal, but limited by CVA6/LLC
+    MaxTxns       : 24    // TODO: suboptimal, but limited by CVA6/LLC
+  };
+`endif
+
   localparam SocDataWidth = $bits(soc_req_i.w.data);
   localparam SocIdWidth   = $bits(soc_req_i.ar.id);
   localparam SocUserWidth = $bits(soc_req_i.ar.user);
