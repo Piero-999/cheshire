@@ -54,6 +54,9 @@ target/xilinx/out
 target/xilinx/scripts/add_sources.*
 vivado*
 
+#guides
+guides/*
+
 .Xil
 *.mif
 hs_err*
