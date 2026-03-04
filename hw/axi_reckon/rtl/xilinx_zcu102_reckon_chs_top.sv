@@ -119,6 +119,54 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     ret.LlcOutConnect     = 1;   // <-- mantieni la porta output verso DRAM
     ret.LlcOutRegionStart = 'h8000_0000;
     ret.LlcOutRegionEnd   = 64'h1_0000_0000;
+    // 2 porte slave esterne:
+    //   [0] = axi_layer (register file, controllo ReckOn)
+    //   [1] = BRAM bridge (accesso dati BRAM 256KB via AXI)
+    //
+    ret.AxiExtNumSlv    = 2;
+    ret.AxiExtNumRules  = 2;
+
+    // Porta 0: axi_layer registri — 64 KB @ 0x4000_0000
+    ret.AxiExtRegionIdx  [0] = 0;
+    ret.AxiExtRegionStart[0] = 64'h4000_0000;
+    ret.AxiExtRegionEnd  [0] = 64'h4001_0000;
+
+    // Porta 1: BRAM ReckOn — 256 KB @ 0x4800_0000
+    // BRAM ha ADDR_WIDTH=16 → 2^16 = 65536 words × 4 byte = 256 KB
+    ret.AxiExtRegionIdx  [1] = 1;
+    ret.AxiExtRegionStart[1] = 64'h4800_0000;
+    ret.AxiExtRegionEnd  [1] = 64'h4804_0000;
+
+    `ifdef USE_USB
+      ret.Usb = 1;
+    `else
+      ret.Usb = 0;
+    `endif
+    `ifdef USE_CFG_REGS
+      ret.RegExtNumSlv   = 1;
+      ret.RegExtNumRules = 1;
+      // Mirror the address map of the internal configuration registers.
+      // * 256K @ AXI: 0x4000_0000
+      // * 4K   @ AXI: 0x4100_0000
+      // * 256K @ Reg: 0x4200_0000
+      // * 4K   @ Reg: 0x4300_0000
+      ret.RegExtRegionIdx   [0] = 0;
+      ret.RegExtRegionStart [0] = 32'h4300_0000;
+      ret.RegExtRegionEnd   [0] = 32'h4300_1000;
+    `endif
+    `ifdef USE_VCLIC
+      ret.Clic = 1;
+      ret.ClicVsclic = 1;
+      ret.ClicVsprio = 1;
+      ret.ClicNumVsctxts = 4;
+      ret.ClicPrioWidth = 1;
+    `endif
+    ret.BusErr          = 0;
+    ret.SerialLink      = 0;
+    ret.SpiHost         = 1;
+    ret.Vga             = 0;
+    ret.I2c             = 0;
+    ret.Gpio            = 1;
 
     return ret;
   endfunction
@@ -130,6 +178,18 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   // Configure cheshire for FPGA mapping
   localparam cheshire_cfg_t FPGACfg = gen_cheshire_xilinx_cfg();
   `CHESHIRE_TYPEDEF_ALL(, FPGACfg)
+
+  // Narrow (32-bit) AXI types for the BRAM side of the DW converter
+  localparam int unsigned BramDataWidth = 32;
+  localparam int unsigned BramStrbWidth = BramDataWidth / 8;  // 4
+  localparam int unsigned AxiSlvIdWidth = FPGACfg.AxiMstIdWidth + $clog2(gen_axi_in(FPGACfg).num_in);
+  typedef logic [FPGACfg.AddrWidth-1:0]   bram_addr_t;
+  typedef logic [AxiSlvIdWidth-1:0]       bram_id_t;
+  typedef logic [BramDataWidth-1:0]       bram_data_t;
+  typedef logic [BramStrbWidth-1:0]       bram_strb_t;
+  typedef logic [FPGACfg.AxiUserWidth-1:0] bram_user_t;
+  `AXI_TYPEDEF_ALL_CT(axi_bram, axi_bram_req_t, axi_bram_rsp_t, \
+      bram_addr_t, bram_id_t, bram_data_t, bram_strb_t, bram_user_t)
 
   ////////////////////////
   //  Clock Generation  in the MPSoC//
@@ -664,13 +724,96 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   ) axi_layer_0 (
     .clk_i             ( soc_clk ),
     .rst_ni            ( rst_n ),
-    .axi_ext_slv_req_s ( axi_slv_i ),
-    .axi_ext_slv_rsp_s ( axi_slv_o ),
+    .axi_ext_slv_req_s ( axi_slv_i[0] ),
+    .axi_ext_slv_rsp_s ( axi_slv_o[0] ),
     .axi_reg_o         ( axi_reg_o ),
     .axi_reg_i         ( axi_reg_i ),
     .axi_gpio_o        ( ),
     .axi_gpio_i        ( '0 )
   );
+
+  //////////////////////////////////
+  // AXI DW Converter 64→32 + BRAM //
+  //////////////////////////////////
+
+  // Segnali tra DW converter (master, 32-bit) e axi_to_mem
+  axi_bram_req_t axi_bram_req;
+  axi_bram_rsp_t axi_bram_rsp;
+
+  axi_dw_converter #(
+    .AxiMaxReads          ( 4 ),
+    .AxiSlvPortDataWidth  ( FPGACfg.AxiDataWidth ),  // 64
+    .AxiMstPortDataWidth  ( BramDataWidth ),          // 32
+    .AxiAddrWidth         ( FPGACfg.AddrWidth ),
+    .AxiIdWidth           ( AxiSlvIdWidth ),
+    // Common channels (AW, AR, B keep the same types)
+    .aw_chan_t            ( axi_slv_aw_chan_t ),
+    .ar_chan_t            ( axi_slv_ar_chan_t ),
+    .b_chan_t             ( axi_slv_b_chan_t  ),
+    // Master-side (32-bit) W & R channels
+    .mst_w_chan_t         ( axi_bram_w_chan_t ),
+    .mst_r_chan_t         ( axi_bram_r_chan_t ),
+    .axi_mst_req_t        ( axi_bram_req_t ),
+    .axi_mst_resp_t       ( axi_bram_rsp_t ),
+    // Slave-side (64-bit) W & R channels
+    .slv_w_chan_t         ( axi_slv_w_chan_t ),
+    .slv_r_chan_t         ( axi_slv_r_chan_t ),
+    .axi_slv_req_t        ( axi_slv_req_t ),
+    .axi_slv_resp_t       ( axi_slv_rsp_t )
+  ) i_bram_dw_conv (
+    .clk_i      ( soc_clk ),
+    .rst_ni     ( rst_n ),
+    .slv_req_i  ( axi_slv_i[1] ),
+    .slv_resp_o ( axi_slv_o[1] ),
+    .mst_req_o  ( axi_bram_req ),
+    .mst_resp_i ( axi_bram_rsp )
+  );
+
+  // Segnali SRAM interface (ora a 32-bit)
+  logic        bram_req, bram_we, bram_rvalid;
+  logic [FPGACfg.AddrWidth-1:0] bram_addr_full;
+  logic [BramDataWidth-1:0]     bram_wdata, bram_rdata;
+  logic [BramStrbWidth-1:0]     bram_strb;
+
+  axi_to_mem #(
+    .axi_req_t  ( axi_bram_req_t ),
+    .axi_resp_t ( axi_bram_rsp_t ),
+    .AddrWidth  ( FPGACfg.AddrWidth ),
+    .DataWidth  ( BramDataWidth ),       // 32
+    .IdWidth    ( AxiSlvIdWidth ),
+    .NumBanks   ( 1 ),
+    .BufDepth   ( 4 )
+  ) i_bram_axi_to_mem (
+    .clk_i       ( soc_clk ),
+    .rst_ni      ( rst_n ),
+    .busy_o      ( ),
+    .axi_req_i   ( axi_bram_req ),
+    .axi_resp_o  ( axi_bram_rsp ),
+    .mem_req_o   ( bram_req ),
+    .mem_gnt_i   ( bram_req ),          // BRAM sempre pronta
+    .mem_addr_o  ( bram_addr_full ),
+    .mem_wdata_o ( bram_wdata ),
+    .mem_strb_o  ( bram_strb ),
+    .mem_atop_o  ( ),
+    .mem_we_o    ( bram_we ),
+    .mem_rvalid_i( bram_rvalid ),
+    .mem_rdata_i ( bram_rdata )
+  );
+
+  // read valid 1 ciclo dopo la request (come fa cheshire_soc per debug mem)
+  always_ff @(posedge soc_clk or negedge rst_n) begin
+    if (!rst_n) bram_rvalid <= 1'b0;
+    else        bram_rvalid <= bram_req & ~bram_we;
+  end
+
+  // Connessione alla BRAM port A (tutto a 32-bit, nessun troncamento)
+  assign AERAM_clk = soc_clk;
+  assign AERAM_rst = ~rst_n;
+  assign AERAM_cs  = bram_req;
+  assign AERAM_add = bram_addr_full[17:0];
+  assign AERAM_din = bram_wdata;
+  assign AERAM_we  = bram_we ? bram_strb : 4'b0;
+  assign bram_rdata = AERAM_dout;
 
   //////////////////
   //  Reset Sync  //
@@ -701,13 +844,13 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
 
 `ifdef USE_MPSOC
   zcu102_mpsoc_wrapper MPSoC_controller_0 (
-    .BRAM_PORTA_addr(AERAM_addr),
-    .BRAM_PORTA_clk (AERAM_clk),
-    .BRAM_PORTA_din (AERAM_din),
-    .BRAM_PORTA_en  (AERAM_cs),
-    .BRAM_PORTA_rst (AERAM_rst),
-    .BRAM_PORTA_we  (AERAM_we),
-    .BRAM_PORTA_dout(AERAM_dout),
+    //.BRAM_PORTA_addr(AERAM_addr),
+    //.BRAM_PORTA_clk (AERAM_clk),
+    //.BRAM_PORTA_din (AERAM_din),
+    //.BRAM_PORTA_en  (AERAM_cs),
+    //.BRAM_PORTA_rst (AERAM_rst),
+    //.BRAM_PORTA_we  (AERAM_we),
+    //.BRAM_PORTA_dout(AERAM_dout),
     .CLK_IN1_D_clk_n(sys_clk_n),
     .CLK_IN1_D_clk_p(sys_clk_p),
     .clk_48  ( ),

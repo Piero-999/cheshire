@@ -13,8 +13,8 @@ module axi_layer import cheshire_pkg::*; #
   input  logic clk_i,
   input  logic rst_ni,
   // use the canonical Cheshire packed AXI types on the module ports
-  input  axi_ext_slv_req_t  [(Cfg.AxiExtNumSlv-1):0] axi_ext_slv_req_s,
-  output axi_ext_slv_rsp_t  [(Cfg.AxiExtNumSlv-1):0] axi_ext_slv_rsp_s,
+  input  axi_ext_slv_req_t  axi_ext_slv_req_s,
+  output axi_ext_slv_rsp_t  axi_ext_slv_rsp_s,
 
   output logic [31:0] axi_reg_o [AxiRegsNout-1:0],
   input  logic [31:0] axi_reg_i [AxiRegsNin-1:0],
@@ -104,8 +104,8 @@ module axi_layer import cheshire_pkg::*; #
   generate
     if (Cfg.AxiExtNumSlv > 0) begin
       // connect first external slave to the RF adapter
-      assign axi_slv_rf_i = axi_ext_slv_req_s[0];
-      assign axi_ext_slv_rsp_s[0] = axi_slv_rf_o;
+      assign axi_slv_rf_i = axi_ext_slv_req_s;
+      assign axi_ext_slv_rsp_s = axi_slv_rf_o;
     end else begin
       // tie off if none present
       assign axi_slv_rf_i = '0;
