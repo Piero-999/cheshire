@@ -171,7 +171,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     return ret;
   endfunction
 
-  localparam AxiRegsNin  = 3;
+  localparam AxiRegsNin  = 4;   // era 3 — aggiunto in_reg[3] per status streaming
   localparam AxiRegsNout = 8;
   localparam UseAxiGPIO  = 1;
 
@@ -673,9 +673,84 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
 
   assign led_o[0]        = debug_axi;
 
+  //////////////////////////////////////////////////////////////////////
+  //  Streaming DDR4→BRAM: segnali, CDC, edge detectors, sticky flags //
+  //////////////////////////////////////////////////////////////////////
+
+  // Segnali dal/verso reckon_axi_top
+  logic ram_addr_half;           // da reckon_axi_top (dominio clk15)
+  logic fill_done;               // verso reckon_axi_top (dominio soc_clk, dal SW)
+  logic data_exhausted;          // verso reckon_axi_top (dominio soc_clk, dal SW)
+
+  // fill_done e data_exhausted: controllati dal software via out_reg[7]
+  assign fill_done       = axi_reg_o[7][1];
+  assign data_exhausted  = axi_reg_o[7][2];
+
+  // Clear signals da CVA6 (out_reg[7])
+  wire half_crossed_clr   = axi_reg_o[7][3];
+  wire bottom_reached_clr = axi_reg_o[7][4];
+
+  // CDC: ram_addr_half (clk15 → soc_clk)
+  logic ram_addr_half_sync1, ram_addr_half_sync2, ram_addr_half_prev;
+  always_ff @(posedge soc_clk or negedge rst_n) begin
+    if (!rst_n) begin
+      ram_addr_half_sync1 <= 1'b0;
+      ram_addr_half_sync2 <= 1'b0;
+      ram_addr_half_prev  <= 1'b0;
+    end else begin
+      ram_addr_half_sync1 <= ram_addr_half;
+      ram_addr_half_sync2 <= ram_addr_half_sync1;
+      ram_addr_half_prev  <= ram_addr_half_sync2;
+    end
+  end
+
+  // CDC: BATCH_DONE (clk15 → soc_clk)
+  logic batch_done_sync1, batch_done_sync2, batch_done_prev;
+  always_ff @(posedge soc_clk or negedge rst_n) begin
+    if (!rst_n) begin
+      batch_done_sync1 <= 1'b0;
+      batch_done_sync2 <= 1'b0;
+      batch_done_prev  <= 1'b0;
+    end else begin
+      batch_done_sync1 <= reckon_ctrl_o[1][0];  // BATCH_DONE da reckon_axi_top
+      batch_done_sync2 <= batch_done_sync1;
+      batch_done_prev  <= batch_done_sync2;
+    end
+  end
+
+  // Edge detection
+  wire half_crossed_edge   = ram_addr_half_sync2 & ~ram_addr_half_prev;   // rising 0→1
+  wire bottom_reached_edge = batch_done_sync2 & ~batch_done_prev;         // rising BATCH_DONE
+
+  // Sticky flag: half_crossed
+  logic half_crossed_flag;
+  always_ff @(posedge soc_clk or negedge rst_n) begin
+    if (!rst_n)
+      half_crossed_flag <= 1'b0;
+    else if (half_crossed_clr)
+      half_crossed_flag <= 1'b0;       // CVA6 pulisce il flag
+    else if (half_crossed_edge)
+      half_crossed_flag <= 1'b1;       // si alza su 0→1 di ram_addr_half
+  end
+
+  // Sticky flag: bottom_reached
+  logic bottom_reached_flag;
+  always_ff @(posedge soc_clk or negedge rst_n) begin
+    if (!rst_n)
+      bottom_reached_flag <= 1'b0;
+    else if (bottom_reached_clr)
+      bottom_reached_flag <= 1'b0;     // CVA6 pulisce il flag
+    else if (bottom_reached_edge)
+      bottom_reached_flag <= 1'b1;     // si alza su rising di BATCH_DONE
+  end
+
   assign axi_reg_i[0]   = infer_count;
   assign axi_reg_i[1]   = reckon_ctrl_o[0];
   assign axi_reg_i[2]   = reckon_ctrl_o[1];
+  assign axi_reg_i[3]   = {29'b0,
+                           ram_addr_half_sync2,    // [2] livello: quale metà
+                           bottom_reached_flag,    // [1] sticky: fine BRAM
+                           half_crossed_flag};     // [0] sticky: superata metà
 
   reckon_axi_top #(
     .ADDR_WIDTH(16)
@@ -708,7 +783,11 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .infer_count_o(infer_count),
     .batch_size_i(axi_batch_size[11:0]),
     .n_samples_i(axi_n_samples[11:0]),
-    .do_eprop_i(axi_do_eprop[2:0])
+    .do_eprop_i(axi_do_eprop[2:0]),
+    //  Streaming DDR4→BRAM: nuovi collegamenti //
+    .ram_addr_half_o(ram_addr_half),
+    .fill_done_i(fill_done),
+    .data_exhausted_i(data_exhausted)
   );
 
   axi_slv_req_t [(FPGACfg.AxiExtNumSlv-1):0] axi_slv_i;
@@ -732,9 +811,9 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .axi_gpio_i        ( '0 )
   );
 
-  //////////////////////////////////
+  ///////////////////////////////////
   // AXI DW Converter 64→32 + BRAM //
-  //////////////////////////////////
+  ///////////////////////////////////
 
   // Segnali tra DW converter (master, 32-bit) e axi_to_mem
   axi_bram_req_t axi_bram_req;

@@ -41,7 +41,11 @@ module aer_decoder #(
   output wire BATCH_DONE,
   output wire EPOCH_DONE,
 
-  output wire [11:0] infer_count_o
+  output wire [11:0] infer_count_o,
+
+  //Streaming DDR4→BRAM: nuovi segnali //
+  output wire ram_addr_half_o,     // MSB di RAM_ADDR: 0 = metà inferiore, 1 = metà superiore
+  input  wire data_exhausted_i     // da Cheshire: dati DDR4 finiti → a END_B vai in END_E
 );
 
   reg [11:0] data_aer_in_reg, tick_aer_in_reg;
@@ -155,6 +159,9 @@ module aer_decoder #(
   assign BATCH_DONE           = BATCH_DONE_reg;
   assign cnt_epochs           = cnt_epochs_reg;
 
+  //// Streaming: MSB di RAM_ADDR indica quale metà sta leggendo ReckOn ////
+  assign ram_addr_half_o      = RAM_ADDR[ADDR_WIDTH-1];
+
   reg NEW_EPOCH_sync, STOP_sync, NEW_BATCH_sync;
   reg NEW_EPOCH_sync2, STOP_sync2, NEW_BATCH_sync2;
   reg tick_sync1, tick_sync2;
@@ -228,7 +235,9 @@ module aer_decoder #(
       SPIKE:   next_state <= AERIN_ACK ? READM : SPIKE;
       LABEL:   next_state <= (TEST_sync || target_enable) ? READM : LABEL;
       END_S:   next_state <= sample_end                                ? (cnt_sample_batch == BATCH_SIZE_sync ? END_B  : READM) : END_S;
-      END_B:   next_state <= (cnt_sample_epoch == N_SAMPLES_sync)  ? END_E                      : (NEW_BATCH_sync ? READM : END_B);
+      END_B:   next_state <= (cnt_sample_epoch == N_SAMPLES_sync)  ? END_E
+                           : (data_exhausted_i                     ? END_E              // ← streaming: dati finiti → stop
+                           : (NEW_BATCH_sync                       ? READM : END_B));
       END_E:   next_state <= (cnt_epochs_reg   == n_epochs)            ? (STOP_sync ? IDLE : END_E) : (NEW_EPOCH_sync ? READM : END_E);
       default: next_state <= IDLE;
     endcase

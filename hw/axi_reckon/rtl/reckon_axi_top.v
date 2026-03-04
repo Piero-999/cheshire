@@ -37,7 +37,12 @@ module reckon_axi_top #(
 
     input wire [11:0] batch_size_i,
     input wire [11:0] n_samples_i,
-    input wire [2:0 ] do_eprop_i
+    input wire [2:0 ] do_eprop_i,
+
+    // ═══ Streaming DDR4→BRAM: nuovi segnali ═══
+    output wire ram_addr_half_o,     // quale metà sta leggendo aer_decoder
+    input  wire fill_done_i,         // da Cheshire: metà libera riempita via DMA
+    input  wire data_exhausted_i     // da Cheshire: dati DDR4 finiti
 
 );
 
@@ -95,6 +100,60 @@ assign NEW_EPOCH      = reckon_ctrl_i_0[0];
 assign NEW_BATCH      = reckon_ctrl_i_1[0];
 assign TEST           = reckon_ctrl_i_2[0];
 assign STOP           = reckon_ctrl_i_3[0];
+
+/////////////////////////////////////////////////
+//  Streaming DDR4→BRAM: CDC + Auto-NEW_BATCH  //
+/////////////////////////////////////////////////
+
+// --- CDC: fill_done (soc_clk → clk_i = clk15) ---
+reg fill_done_sync1, fill_done_sync2;
+always @(posedge clk_i) begin
+    if (rst_i) begin
+        fill_done_sync1 <= 1'b0;
+        fill_done_sync2 <= 1'b0;
+    end else begin
+        fill_done_sync1 <= fill_done_i;
+        fill_done_sync2 <= fill_done_sync1;
+    end
+end
+wire fill_done_sync = fill_done_sync2;
+
+// --- CDC: data_exhausted (soc_clk → clk_i = clk15) ---
+reg data_exhausted_sync1, data_exhausted_sync2;
+always @(posedge clk_i) begin
+    if (rst_i) begin
+        data_exhausted_sync1 <= 1'b0;
+        data_exhausted_sync2 <= 1'b0;
+    end else begin
+        data_exhausted_sync1 <= data_exhausted_i;
+        data_exhausted_sync2 <= data_exhausted_sync1;
+    end
+end
+
+// --- Edge detector su BATCH_DONE (genera pulse di 1 ciclo) ---
+reg batch_done_prev;
+wire batch_done_rising;
+always @(posedge clk_i) begin
+    if (rst_i) batch_done_prev <= 1'b0;
+    else       batch_done_prev <= BATCH_DONE_wire;
+end
+assign batch_done_rising = BATCH_DONE_wire & ~batch_done_prev;
+
+// --- Auto-NEW_BATCH: pulse quando BATCH_DONE sale E fill_done è 1 ---
+// Questo viene OR-ato con il NEW_BATCH manuale da Cheshire.
+// Se data_exhausted è attivo, NON generare auto_new_batch (ReckOn si ferma).
+reg auto_new_batch;
+always @(posedge clk_i) begin
+    if (rst_i)
+        auto_new_batch <= 1'b0;
+    else if (batch_done_rising && fill_done_sync && !data_exhausted_sync2)
+        auto_new_batch <= 1'b1;
+    else
+        auto_new_batch <= 1'b0;  // pulse di 1 ciclo
+end
+
+// NEW_BATCH combinato: manuale (da SW) OR automatico (da HW) // 
+wire NEW_BATCH_combined = NEW_BATCH_sync | auto_new_batch;
 
 reckon #(
     .N(256),
@@ -176,12 +235,16 @@ aer_decoder #(
     .DIN(DIN),
     .RAM_ADDR(RAM_ADDR),
 
-    .NEW_BATCH(NEW_BATCH_sync),
+    .NEW_BATCH(NEW_BATCH_combined),   
     .NEW_EPOCH(NEW_EPOCH_sync),
     .BATCH_DONE(BATCH_DONE_wire),
     .EPOCH_DONE(EPOCH_DONE_wire),
 
-    .infer_count_o(infer_count_o)
+    .infer_count_o(infer_count_o),
+
+    
+    .ram_addr_half_o(ram_addr_half_o),
+    .data_exhausted_i(data_exhausted_sync2)
 );
 
 BRAM2_we_inst #(
