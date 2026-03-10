@@ -13,7 +13,7 @@ source ${xilinx_root}/scripts/common.tcl
 init_impl $xilinx_root $argc $argv
 
 # Addtional args provide IPs
-# read_ip [exec realpath {*}[lrange $argv 2 end]]
+read_ip [exec realpath {*}[lrange $argv 2 end]]
 
 # Load constraints
 import_files -fileset constrs_1 -norecurse ${xilinx_root}/constraints/${proj}.xdc
@@ -45,8 +45,13 @@ set_property XPM_LIBRARIES XPM_MEMORY [current_project]
 set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 
 # Elaborate and open design to explore all clocks
+
+set_param general.maxThreads 8
+
 synth_design -rtl -name rtl_1
 report_clocks -file ${project_root}/clocks.rpt
+
+return
 
 # Synthesis
 launch_runs -jobs $num_jobs synth_1

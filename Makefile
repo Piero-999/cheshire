@@ -9,7 +9,10 @@
 VIVADO ?= vivado
 
 CHS_ROOT := $(shell realpath .)
-BENDER	 ?= bender -d $(CHS_ROOT)
+BENDER	 ?= $(CHS_ROOT)/bender -d $(CHS_ROOT)
+
+# Use local venv python (has mako and other required packages)
+export PATH := $(CHS_ROOT)/.venv/bin:$(PATH)
 
 all:
 

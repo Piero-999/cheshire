@@ -49,7 +49,7 @@ if { [info exists USE_DRAMSYS] } {
 }
 
 # tclint-disable-next-line command-args
-eval "vsim -c ${TESTBENCH} -t 1ps -vopt -voptargs=\"${VOPTARGS}\"" ${pargs} ${flags}
+eval "vsim -c ${TESTBENCH} -t 1ps -vopt -voptargs=\"${VOPTARGS}\" -sv_lib [file dirname [info script]]/elfloader" ${pargs} ${flags}
 
 set StdArithNoWarnings 1
 set NumericStdNoWarnings 1

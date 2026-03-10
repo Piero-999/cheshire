@@ -30,18 +30,15 @@ CHS_XILINX_HW := $(CHS_XILINX_DIR)/src/regs/chs_xilinx_reg_pkg.sv $(CHS_XILINX_D
 # Xilinx IPs #
 ##############
 
-.PRECIOUS: $(CHS_XILINX_DIR)/build/%/ $(CHS_XILINX_DIR)/build/%/out.xci
-
-$(CHS_XILINX_DIR)/build/%/:
-	mkdir -p $@
+.PRECIOUS: $(CHS_XILINX_DIR)/build/%/out.xci
 
 # We split the stem into a board and an IP and resolve dependencies accordingly
 $(CHS_XILINX_DIR)/build/%/out.xci: \
 		$(CHS_XILINX_DIR)/scripts/impl_ip.tcl \
-		$$(wildcard $(CHS_XILINX_DIR)/src/ips/$$*.prj) \
-		| $(CHS_XILINX_DIR)/build/%/
+		$$(wildcard $(CHS_XILINX_DIR)/src/ips/$$*.prj)
+	@mkdir -p $(CHS_XILINX_DIR)/build/$*/
 	@rm -f $(CHS_XILINX_DIR)/build/$(*)*.log $(CHS_XILINX_DIR)/build/$(*)*.jou
-	cd $| && $(VIVADO) -mode batch -log ../$*.log -jou ../$*.jou -source $< -tclargs $(subst ., ,$*)
+	cd $(CHS_XILINX_DIR)/build/$*/ && $(VIVADO) -mode batch -log ../$*.log -jou ../$*.jou -source $< -tclargs $(subst ., ,$*)
 
 ##############
 # Bitstreams #
@@ -53,7 +50,7 @@ CHS_XILINX_IPS_genesys2 := clkwiz vio mig7s
 CHS_XILINX_IPS_vcu128   := clkwiz vio ddr4
 CHS_XILINX_IPS_vcu118   := clkwiz vio ddr4
 #CHS_XILINX_IPS_zcu102	:= clkwiz vio
-CHS_XILINX_IPS_zcu102	:= 
+CHS_XILINX_IPS_zcu102	:= ddr4
 
 
 $(CHS_XILINX_DIR)/scripts/add_sources.%.tcl: $(CHS_ROOT)/Bender.yml $(CHS_XILINX_HW)
@@ -64,10 +61,10 @@ $$(CHS_XILINX_DIR)/out/%.$(1).bit: \
 		$$(CHS_XILINX_DIR)/scripts/impl_sys.tcl \
 		$$(CHS_XILINX_DIR)/scripts/add_sources.$(1).tcl \
  		$$(CHS_XILINX_IPS_$(1):%=$(CHS_XILINX_DIR)/build/$(1).%/out.xci) \
-		$$(CHS_HW_ALL) \
-		| $$(CHS_XILINX_DIR)/build/$(1).%/
+		$$(CHS_HW_ALL)
+	@mkdir -p $$(CHS_XILINX_DIR)/build/$(1).$$*/
 	@rm -f $$(CHS_XILINX_DIR)/build/$$*.$(1)*.log $$(CHS_XILINX_DIR)/build/$$*.$(1)*.jou
-	cd $$| && $$(VIVADO) -mode batch -log ../$$*.$(1).log -jou ../$$*.$(1).jou -source $$< \
+	cd $$(CHS_XILINX_DIR)/build/$(1).$$*/ && $$(VIVADO) -mode batch -log ../$$*.$(1).log -jou ../$$*.$(1).jou -source $$< \
 		-tclargs $(1) $$* $$(CHS_XILINX_IPS_$(1):%=$$(CHS_XILINX_DIR)/build/$(1).%/out.xci)
 
 CHS_PHONY += chs-xilinx-$(1)
@@ -92,10 +89,11 @@ CHS_XILINX_HWS_URL ?= localhost:3121
 define chs_xilinx_util_rule
 CHS_PHONY += $(foreach board,$(CHS_XILINX_BOARDS),chs-xilinx-$(1)-$(board))
 $(foreach board,$(CHS_XILINX_BOARDS),chs-xilinx-$(1)-$(board)): chs-xilinx-$(1)-%: \
-		$$(CHS_XILINX_DIR)/scripts/util/$(1).tcl | $$(CHS_XILINX_DIR)/build/%.$(1)/
+		$$(CHS_XILINX_DIR)/scripts/util/$(1).tcl
 	[ -e $(subst %,$$*,$(2)) ] || $$(MAKE) $(subst %,$$*,$(2))
+	@mkdir -p $$(CHS_XILINX_DIR)/build/$$*.$(1)/
 	@rm -f $$(CHS_XILINX_DIR)/build/$$(*)*.$(1).log $$(CHS_XILINX_DIR)/build/$$(*)*.$(1).jou
-	cd $$| && $$(VIVADO) -mode batch -log ../$$(*).$(1).log -jou ../$$(*).$(1).jou -source $$< \
+	cd $$(CHS_XILINX_DIR)/build/$$*.$(1)/ && $$(VIVADO) -mode batch -log ../$$(*).$(1).log -jou ../$$(*).$(1).jou -source $$< \
 		-tclargs $$(CHS_XILINX_HWS_URL) $$(or $$(CHS_XILINX_HWS_PATH_$$*),{*}) $$* $(subst %,$$*,$(2)) 0
 endef
 

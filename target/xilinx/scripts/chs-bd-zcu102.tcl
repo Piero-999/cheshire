@@ -5,10 +5,10 @@ set_property -name "board_part" -value "xilinx.com:zcu102:part0:3.4" -objects [c
 create_bd_design $design_name
 
 ## MPSoC
-#Vivado 2024.2
-create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_0 
-
-#create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ultra_ps_e_0
+#Vivado 2024.2: zynq_ultra_ps_e:3.5
+#Vivado 2022.x: zynq_ultra_ps_e:3.4
+#Vivado 2020.2: zynq_ultra_ps_e:3.3
+create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0
 
 set_property -dict [list \
   CONFIG.PSU__DDRC__ENABLE {0} \
@@ -59,10 +59,12 @@ set_property -dict [list \
   CONFIG.CLKOUT2_USED {true} \
   CONFIG.CLKOUT3_USED {true} \
   CONFIG.CLKOUT4_USED {true} \
+  CONFIG.CLKOUT5_USED {true} \
   CONFIG.CLK_OUT1_PORT {clk_50} \
   CONFIG.CLK_OUT2_PORT {clk_48} \
   CONFIG.CLK_OUT3_PORT {clk_20} \
   CONFIG.CLK_OUT4_PORT {clk_15} \
+  CONFIG.CLK_OUT5_PORT {sys_clk} \
   CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {50.000} \
   CONFIG.CLKOUT1_JITTER {116.415} \
   CONFIG.CLKOUT1_PHASE_ERROR {77.836} \
@@ -73,6 +75,8 @@ set_property -dict [list \
   CONFIG.CLKOUT4_JITTER {160.570} \
   CONFIG.CLKOUT4_PHASE_ERROR {77.836} \
   CONFIG.CLKOUT4_REQUESTED_OUT_FREQ {15.000} \
+  CONFIG.CLKOUT5_REQUESTED_OUT_FREQ {100.000} \
+  CONFIG.NUM_OUT_CLKS {5} \
   ] [get_bd_cells clk_wiz_0]
 
 create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_IN1_D
@@ -90,6 +94,9 @@ connect_bd_net [get_bd_pins /clk_wiz_0/clk_20] [get_bd_ports clk_20]
 
 create_bd_port -dir O -type clk clk_15
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_15] [get_bd_ports clk_15]
+
+create_bd_port -dir O -type clk sys_clk
+connect_bd_net [get_bd_pins /clk_wiz_0/sys_clk] [get_bd_ports sys_clk]
 
 # VIO
 
@@ -125,6 +132,11 @@ connect_bd_net [get_bd_pins /vio_0/probe_out2] [get_bd_ports probe_out2]
 
 create_bd_port -dir O -from 0 -to 0 probe_out3
 connect_bd_net [get_bd_pins /vio_0/probe_out3] [get_bd_ports probe_out3]
+
+
+# DDR4 MIG is instantiated and wired in RTL (`dram_wrapper_xilinx.sv`).
+# Keep this BD focused on clocks/VIO/PS to avoid duplicating the DDR path.
+
 
 update_compile_order -fileset sources_1
 

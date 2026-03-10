@@ -171,6 +171,13 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     return ret;
   endfunction
 
+  // Vivado 2020.2 does not support chained function-call + field access
+  // (e.g. gen_axi_in(cfg).num_in). Use a wrapper that stores the result first.
+  function automatic int unsigned get_num_axi_in(cheshire_cfg_t cfg);
+    automatic axi_in_t tmp = gen_axi_in(cfg);
+    return int'(tmp.num_in);
+  endfunction
+
   localparam AxiRegsNin  = 4;   // era 3 — aggiunto in_reg[3] per status streaming
   localparam AxiRegsNout = 8;
   localparam UseAxiGPIO  = 1;
@@ -179,15 +186,24 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   localparam cheshire_cfg_t FPGACfg = gen_cheshire_xilinx_cfg();
   `CHESHIRE_TYPEDEF_ALL(, FPGACfg)
 
+  // Explicit localparams: Vivado 2020.2 cannot resolve struct member accesses
+  // (e.g. FPGACfg.AddrWidth) directly inside typedef/signal dimension expressions.
+  localparam int unsigned CfgAddrWidth     = FPGACfg.AddrWidth;
+  localparam int unsigned CfgAxiDataWidth  = FPGACfg.AxiDataWidth;
+  localparam int unsigned CfgAxiUserWidth  = FPGACfg.AxiUserWidth;
+  localparam int unsigned CfgAxiMstIdWidth = FPGACfg.AxiMstIdWidth;
+  localparam int unsigned CfgAxiExtNumSlv  = FPGACfg.AxiExtNumSlv;
+  localparam int unsigned CfgNumAxiIn      = get_num_axi_in(FPGACfg);
+
   // Narrow (32-bit) AXI types for the BRAM side of the DW converter
   localparam int unsigned BramDataWidth = 32;
   localparam int unsigned BramStrbWidth = BramDataWidth / 8;  // 4
-  localparam int unsigned AxiSlvIdWidth = FPGACfg.AxiMstIdWidth + $clog2(gen_axi_in(FPGACfg).num_in);
-  typedef logic [FPGACfg.AddrWidth-1:0]   bram_addr_t;
-  typedef logic [AxiSlvIdWidth-1:0]       bram_id_t;
-  typedef logic [BramDataWidth-1:0]       bram_data_t;
-  typedef logic [BramStrbWidth-1:0]       bram_strb_t;
-  typedef logic [FPGACfg.AxiUserWidth-1:0] bram_user_t;
+  localparam int unsigned AxiSlvIdWidth = CfgAxiMstIdWidth + $clog2(CfgNumAxiIn);
+  typedef logic [CfgAddrWidth-1:0]    bram_addr_t;
+  typedef logic [AxiSlvIdWidth-1:0]   bram_id_t;
+  typedef logic [BramDataWidth-1:0]   bram_data_t;
+  typedef logic [BramStrbWidth-1:0]   bram_strb_t;
+  typedef logic [CfgAxiUserWidth-1:0] bram_user_t;
   `AXI_TYPEDEF_ALL_CT(axi_bram, axi_bram_req_t, axi_bram_rsp_t, \
       bram_addr_t, bram_id_t, bram_data_t, bram_strb_t, bram_user_t)
 
@@ -790,8 +806,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .data_exhausted_i(data_exhausted)
   );
 
-  axi_slv_req_t [(FPGACfg.AxiExtNumSlv-1):0] axi_slv_i;
-  axi_slv_rsp_t [(FPGACfg.AxiExtNumSlv-1):0] axi_slv_o;
+  axi_slv_req_t [(CfgAxiExtNumSlv-1):0] axi_slv_i;
+  axi_slv_rsp_t [(CfgAxiExtNumSlv-1):0] axi_slv_o;
 
   axi_layer #(
     .Cfg               ( FPGACfg ),
@@ -821,9 +837,9 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
 
   axi_dw_converter #(
     .AxiMaxReads          ( 4 ),
-    .AxiSlvPortDataWidth  ( FPGACfg.AxiDataWidth ),  // 64
-    .AxiMstPortDataWidth  ( BramDataWidth ),          // 32
-    .AxiAddrWidth         ( FPGACfg.AddrWidth ),
+    .AxiSlvPortDataWidth  ( CfgAxiDataWidth ),  // 64
+    .AxiMstPortDataWidth  ( BramDataWidth ),     // 32
+    .AxiAddrWidth         ( CfgAddrWidth ),
     .AxiIdWidth           ( AxiSlvIdWidth ),
     // Common channels (AW, AR, B keep the same types)
     .aw_chan_t            ( axi_slv_aw_chan_t ),
@@ -850,14 +866,14 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
 
   // Segnali SRAM interface (ora a 32-bit)
   logic        bram_req, bram_we, bram_rvalid;
-  logic [FPGACfg.AddrWidth-1:0] bram_addr_full;
+  logic [CfgAddrWidth-1:0] bram_addr_full;
   logic [BramDataWidth-1:0]     bram_wdata, bram_rdata;
   logic [BramStrbWidth-1:0]     bram_strb;
 
   axi_to_mem #(
     .axi_req_t  ( axi_bram_req_t ),
     .axi_resp_t ( axi_bram_rsp_t ),
-    .AddrWidth  ( FPGACfg.AddrWidth ),
+    .AddrWidth  ( CfgAddrWidth ),
     .DataWidth  ( BramDataWidth ),       // 32
     .IdWidth    ( AxiSlvIdWidth ),
     .NumBanks   ( 1 ),
@@ -936,6 +952,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .clk_50   ( soc_clk  ),
     .clk_20   ( ),
     .clk_15   ( clk15),
+    .sys_clk  ( sys_clk ),
     .probe_out0 ( vio_reset         ),
     .probe_out1 ( vio_boot_mode     ),
     .probe_out2 ( vio_boot_mode_sel ),
