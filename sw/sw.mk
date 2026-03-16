@@ -7,14 +7,21 @@
 # Paul Scheffler <paulsc@iis.ee.ethz.ch>
 
 # Override this as needed
-CHS_SW_GCC_BINROOT ?= $(dir $(shell which riscv64-unknown-elf-gcc))
-CHS_SW_DTC     ?= dtc
+#CHS_SW_GCC_BINROOT ?= $(dir $(shell which riscv64-unknown-elf-gcc))
+CHS_SW_GCC_BINROOT ?= /home/bevilacqua/cheshire/riscv/bin
+CHS_SW_DTC ?= dtc
 
-CHS_SW_AR      := $(CHS_SW_GCC_BINROOT)/riscv64-unknown-elf-ar
-CHS_SW_CC      := $(CHS_SW_GCC_BINROOT)/riscv64-unknown-elf-gcc
-CHS_SW_OBJCOPY := $(CHS_SW_GCC_BINROOT)/riscv64-unknown-elf-objcopy
-CHS_SW_OBJDUMP := $(CHS_SW_GCC_BINROOT)/riscv64-unknown-elf-objdump
-CHS_SW_LTOPLUG := $(shell find $(shell dirname $(CHS_SW_GCC_BINROOT))/libexec/gcc/riscv64-unknown-elf/**/liblto_plugin.so)
+# Prefer bare-metal toolchain; fall back to linux-gnu if only that is installed.
+CHS_SW_TOOLPREFIX ?= riscv64-unknown-elf
+ifeq ($(wildcard $(CHS_SW_GCC_BINROOT)/$(CHS_SW_TOOLPREFIX)-gcc),)
+CHS_SW_TOOLPREFIX := riscv64-unknown-linux-gnu
+endif
+
+CHS_SW_AR := $(CHS_SW_GCC_BINROOT)/$(CHS_SW_TOOLPREFIX)-gcc-ar
+CHS_SW_CC := $(CHS_SW_GCC_BINROOT)/$(CHS_SW_TOOLPREFIX)-gcc
+CHS_SW_OBJCOPY := $(CHS_SW_GCC_BINROOT)/$(CHS_SW_TOOLPREFIX)-objcopy
+CHS_SW_OBJDUMP := $(CHS_SW_GCC_BINROOT)/$(CHS_SW_TOOLPREFIX)-objdump
+CHS_SW_LTOPLUG := $(shell find $(CHS_SW_GCC_BINROOT)/../libexec/gcc/$(CHS_SW_TOOLPREFIX) -name liblto_plugin.so 2>/dev/null | head -n 1)
 
 CHS_SW_DIR       ?= $(CHS_ROOT)/sw
 CHS_SW_LD_DIR    ?= $(CHS_SW_DIR)/link
@@ -26,9 +33,16 @@ CHS_SW_DISK_SIZE ?= 16M
 CHS_SW_FLAGS   ?= -DOT_PLATFORM_RV32 -march=rv64gc_zifencei -mabi=lp64d -mstrict-align -O2 -Wall -Wextra -static -ffunction-sections -fdata-sections -frandom-seed=cheshire -fuse-linker-plugin -flto -Wl,-flto
 CHS_SW_CCFLAGS ?= $(CHS_SW_FLAGS) -ggdb -mcmodel=medany -mexplicit-relocs -fno-builtin -fverbose-asm -pipe
 CHS_SW_LDFLAGS ?= $(CHS_SW_FLAGS) -nostartfiles -Wl,--gc-sections -Wl,-L$(CHS_SW_LD_DIR)
-CHS_SW_ARFLAGS ?= --plugin=$(CHS_SW_LTOPLUG)
+CHS_SW_ARFLAGS ?=
 
 CHS_SW_ALL += $(CHS_SW_LIBS) $(CHS_SW_GEN_HDRS) $(CHS_SW_TESTS)
+CHS_PHONY += chs-sw-clean
+
+chs-sw-clean:
+	find $(CHS_SW_DIR) -name '*.o' -delete
+	find $(BENDER_ROOT)/git/checkouts -path '*/sw/*' -name '*.o' -delete 2>/dev/null || true
+	rm -f $(CHS_SW_DIR)/lib/libcheshire.a
+	find $(CHS_SW_DIR)/tests -type f \( -name '*.elf' -o -name '*.dump' -o -name '*.bin' -o -name '*.memh' -o -name '*.gpt.bin' -o -name '*.gpt.memh' \) -delete
 
 .PRECIOUS: %.elf %.dtb
 

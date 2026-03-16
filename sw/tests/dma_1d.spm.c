@@ -32,8 +32,7 @@ int main(void) {
     dst[sizeof(gold) - 1] = '\0';
 
     // Issue blocking memcpy (exclude null terminator from source)
-    sys_dma_blk_memcpy((uintptr_t)(void *)dst, (uintptr_t)(void *)src, sizeof(src_cached) - 1,
-                       DMA_CONF_DECOUPLE_NONE);
+    sys_dma_blk_memcpy((uintptr_t)(void *)dst, (uintptr_t)(void *)src, sizeof(src_cached) - 1);
 
     // Check destination string
     int errors = sizeof(gold);

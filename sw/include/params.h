@@ -48,3 +48,11 @@ static const uint64_t __BOOT_DTB_TYPE_GUID[2] = {0x42DE2AEFBA442F61UL, 0x9DCB3A5
 
 // GUID of firmware partition we boot into
 static const uint64_t __BOOT_FW_TYPE_GUID[2] = {0x4B0D3F5B99EC86DAUL, 0x59F8A5CFBAC44B8FUL};
+
+// Hardware feature detection using register inspection
+#include "util.h"
+#include "regs/cheshire.h"
+
+static inline int chs_hw_feature_present(int feature_bit) {
+    return (*reg32(&__base_regs, CHESHIRE_HW_FEATURES_REG_OFFSET) & BIT(feature_bit)) != 0;
+}

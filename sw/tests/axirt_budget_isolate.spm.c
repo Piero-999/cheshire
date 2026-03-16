@@ -83,7 +83,7 @@ int main(void) {
     // Wait for writes, then launch non-blocking DMA transfer
     fence();
     sys_dma_2d_memcpy((uintptr_t)(void *)dma_dst, (uintptr_t)(void *)dma_src,
-                      sizeof(dma_src_cached), 0, 0, DMA_NUM_REPS, DMA_CONF_DECOUPLE_ALL);
+                      sizeof(dma_src_cached), 0, 0, DMA_NUM_REPS);
 
     // Wait 5000 cycles for isolation to kick in
     uint64_t end_wait_cycles = get_mcycle() + 5000;

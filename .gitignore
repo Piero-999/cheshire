@@ -54,9 +54,11 @@ target/xilinx/out
 target/xilinx/scripts/add_sources.*
 vivado*
 
-#guides
+# Temporary files
 guides/*
 work/*
+chs_env/*
+riscv*/*
 
 .Xil
 *.mif

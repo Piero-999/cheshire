@@ -1,0 +1,9 @@
+# source target/sim/vsim/start.cheshire_soc.tcl
+# ** Note: (vsim-220) '/space/tools/siemens/2025-26/RHELx86/QUESTA-ONE-SIM_2025.3/questasim/linux_x86_64/../modelsim.ini' is used as the ini file.
+# ** Note: (vsim-223) The environment variable MTI_VCO_MODE will be deprecated in future releases. Please use QSIM_VCO_MODE instead.
+# ** Error: (vsim-3763) SystemVerilog DPI cannot access file './target/sim/vsim/elfloader.so'
+# No such file or directory. (errno = ENOENT)
+# Use the -help option for complete vsim usage.
+# vsim -c tb_cheshire_soc -t 1ps -vopt -voptargs="-O5 +acc=p+tb_cheshire_soc. +noacc=p+cheshire_soc. +acc=r+stream_xbar -permissive" -sv_lib target/sim/vsim/elfloader -suppress 3009 -suppress 8386 -error 7 -cpppath /space/tools/siemens/2025-26/RHELx86/CATAPULT_2025.3/Mgc_home/bin/g++ 
+# Error loading design
+# Errors: 1, Warnings: 0

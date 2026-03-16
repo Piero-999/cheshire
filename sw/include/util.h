@@ -80,3 +80,7 @@ static inline void *gprw(void *gp) {
     if (!(cond)) return (ret);
 
 #define MIN(a, b) (((a) <= (b)) ? (a) : (b))
+
+// Bit manipulation macros
+#define BIT(n) (1ULL << (n))
+#define BIT_MASK(n) ((1ULL << (n)) - 1ULL)

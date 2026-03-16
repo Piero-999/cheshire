@@ -46,7 +46,7 @@ set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 
 # Elaborate and open design to explore all clocks
 
-set_param general.maxThreads 8
+#set_param general.maxThreads 8
 
 synth_design -rtl -name rtl_1
 report_clocks -file ${project_root}/clocks.rpt
