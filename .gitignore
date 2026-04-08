@@ -31,6 +31,7 @@ target/sim/models
 target/sim/dramsys
 
 # VSIM generated files
+target/sim/vsim/*
 target/sim/vsim/compile.*.tcl
 target/sim/vsim/*.log
 target/sim/vsim/modelsim.ini
@@ -59,6 +60,7 @@ guides/*
 work/*
 chs_env/*
 riscv*/*
+cmake*/*
 
 .Xil
 *.mif

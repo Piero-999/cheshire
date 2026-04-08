@@ -526,6 +526,49 @@ package cheshire_pkg;
     return ret;
   endfunction
 
+  function automatic config_pkg::cva6_user_cfg_t gen_cva6_noCache_cfg(cheshire_cfg_t cfg);
+    
+    doub_bt SizeSpm = get_llc_size(cfg);
+    doub_bt SizeLlcOut = cfg.LlcOutRegionEnd - cfg.LlcOutRegionStart;
+    doub_bt CieBase   = cfg.Cva6ExtCieOnTop ? 64'h8000_0000 - cfg.Cva6ExtCieLength : 64'h2000_0000;
+    doub_bt NoCieBase = cfg.Cva6ExtCieOnTop ? 64'h2000_0000 : 64'h2000_0000 + cfg.Cva6ExtCieLength;
+    // Base our config on the upstream default for this variant
+    config_pkg::cva6_user_cfg_t ret = cva6_config_pkg::cva6_cfg;
+    // Modify what we need to
+    ret.AxiAddrWidth          = cfg.AddrWidth;
+    ret.AxiDataWidth          = cfg.AxiDataWidth;
+    ret.AxiIdWidth            = Cva6IdWidth;
+    ret.AxiUserWidth          = cfg.AxiUserWidth;
+    ret.CvxifEn               = 0;
+    ret.DmBaseAddress         = AmDbg;
+    ret.HaltAddress           = 'h800; // Relative to AmDbg
+    ret.ExceptionAddress      = 'h810; // Relative to AmDbg
+    ret.NrNonIdempotentRules  = 2;   // Periphs, ExtNonCI;
+    ret.NonIdempotentAddrBase = {64'h0000_0000, NoCieBase};
+    ret.NOCType               = config_pkg::NOC_TYPE_AXI4_ATOP;
+    ret.NonIdempotentLength   = {64'h1000_0000, 64'h6000_0000 - cfg.Cva6ExtCieLength};
+    ret.NrExecuteRegionRules  = 6;   // Debug, Bootrom, SPM, SPM Uncached, LLCOut, ExtCI;
+    ret.ExecuteRegionAddrBase = {AmDbg,     AmBrom,    AmSpm,   AmSpmUnc, cfg.LlcOutRegionStart, CieBase};
+    ret.ExecuteRegionLength   = {64'h40000, 64'h40000, SizeSpm, SizeSpm,  SizeLlcOut,            cfg.Cva6ExtCieLength};
+    ret.NrCachedRegionRules   = '0;   // CachedSPM, LLCOut, ExtCI;
+    ret.CachedRegionAddrBase  = '0;
+    ret.CachedRegionLength    = '0;
+    ret.DebugEn               = 1;
+    ret.RVSCLIC               = cfg.Clic;
+    ret.RVXHCLIC              = cfg.ClicVsclic;
+    ret.CLICNumInterruptSrc   = NumCoreIrqs + NumIntIntrs + cfg.NumExtClicIntrs;
+    // TODO: Should some things be removed from the main config?
+    // TODO: Should other things be added to the main config?
+    // TODO: Tune missing parameters of interest (esp. cache and interconnect) properly
+    ret.RASDepth              = cfg.Cva6RASDepth;
+    ret.BTBEntries            = cfg.Cva6BTBEntries;
+    ret.BHTEntries            = cfg.Cva6BHTEntries;
+    ret.NrPMPEntries          = cfg.Cva6NrPMPEntries;
+    $display("using nocache_gen_config");
+    // Return modified config
+    return ret;
+  endfunction
+
   ////////////////
   //  Defaults  //
   ////////////////

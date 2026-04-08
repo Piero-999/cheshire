@@ -24,7 +24,8 @@ if { ![info exists CXX_PATH] } {
 # Set voptargs only if not already set to make overridable.
 # Default on fast simulation flags.
 if { ![info exists VOPTARGS] } {
-    set VOPTARGS "-O5 +acc=p+tb_cheshire_soc. +noacc=p+cheshire_soc. +acc=r+stream_xbar -permissive"
+    #set VOPTARGS "-O5 +acc=p+tb_cheshire_soc. +acc=r+stream_xbar -permissive"
+    set VOPTARGS "-O5 +acc -permissive"
 }
 
 set flags "-suppress 3009 -suppress 8386 -error 7 -cpppath ${CXX_PATH} "
@@ -49,7 +50,9 @@ if { [info exists USE_DRAMSYS] } {
 }
 
 # tclint-disable-next-line command-args
-eval "vsim -c ${TESTBENCH} -t 1ps -vopt -voptargs=\"${VOPTARGS}\" -sv_lib [file dirname [info script]]/elfloader" ${pargs} ${flags}
-
+#add wave -r /tb_cheshire_soc/fix/dut/gen_dma/i_idma/*;"
+#add wave -r /tb_cheshire_soc/fix/dut/gen_cva6_cores[0]/i_core_cva6/*;"
+eval "vsim -64  ${TESTBENCH} -t 1ns -vopt -voptargs=\"${VOPTARGS}\" -sv_lib [file dirname [info script]]/elfloader" ${pargs} ${flags}
+#vsim -64  ${TESTBENCH} -t 1ns -vopt -voptargs=\"${VOPTARGS}\" -sv_lib [file dirname [info script]]/elfloader" ${pargs} ${flags};
 set StdArithNoWarnings 1
 set NumericStdNoWarnings 1

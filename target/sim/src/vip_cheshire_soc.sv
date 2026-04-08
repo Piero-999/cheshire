@@ -36,6 +36,10 @@ module vip_cheshire_soc import cheshire_pkg::*; #(
   parameter int unsigned  SlinkBurstBytes   = 1024,
   parameter int unsigned  SlinkMaxTxns      = 32,
   parameter int unsigned  SlinkMaxTxnsPerId = 16,
+  parameter int unsigned  SlinkPollMaxIters = 200000,
+  parameter int unsigned  SlinkPollPrintEvery = 1000,
+  parameter bit           SlinkPollJtagCrossCheck = 1,
+  parameter int unsigned  SlinkPollJtagProbeAfter = 1000,
   parameter bit           SlinkAxiDebug     = 0,
   // Derived Parameters;  *do not override*
   parameter int unsigned  AxiStrbWidth      = DutCfg.AxiDataWidth/8,
@@ -480,10 +484,10 @@ module vip_cheshire_soc import cheshire_pkg::*; #(
       end else if (bite == "\n") begin
         if (uart_read_buf.size() > 0) begin
           line = {>>8{uart_read_buf}};
-          $display("[UART] %s", line);
+          $display("[%0t][UART] %s", $time, line);
           uart_read_buf.delete();
         end else begin
-          $display("[UART]");
+          $display("[%0t][UART] %s", $time, line);
         end
       end else if (bite == UartDebugEoc) begin
         uart_boot_eoc = 1;
@@ -875,11 +879,34 @@ module vip_cheshire_soc import cheshire_pkg::*; #(
     output word_bt data,
     input int unsigned idle_cycles
   );
+    int unsigned poll_count;
+    bit did_jtag_probe;
+    poll_count = 0;
+    did_jtag_probe = 0;
     do begin
         axi_data_t beats [$];
         #(ClkPeriodSys * idle_cycles);
         slink_read_beats(addr, 2, 0, beats);
         data = beats[0] >> addr[AxiStrbBits-1:0];
+        poll_count++;
+
+        if (SlinkPollJtagCrossCheck && !did_jtag_probe && (poll_count >= SlinkPollJtagProbeAfter)) begin
+          word_bt jtag_data;
+          jtag_init();
+          jtag_read_reg32(addr, jtag_data, 20);
+          $display("[SLINK][XCHECK] addr=0x%h polls=%0d slink=0x%08h jtag=0x%08h",
+                   addr, poll_count, data, jtag_data);
+          did_jtag_probe = 1;
+        end
+
+        if ((SlinkPollPrintEvery != 0) && ((poll_count % SlinkPollPrintEvery) == 0)) begin
+          $display("[SLINK][POLL] addr=0x%h polls=%0d last=0x%08h", addr, poll_count, data);
+        end
+
+        if (poll_count >= SlinkPollMaxIters) begin
+          $fatal(1, "[SLINK] Poll timeout at addr 0x%h after %0d polls (last=0x%08h)",
+                 addr, poll_count, data);
+        end
     end while (~data[0]);
   endtask
 
@@ -950,7 +977,15 @@ module vip_cheshire_soc import cheshire_pkg::*; #(
 
   // Wait for termination signal and get return code
   task automatic slink_wait_for_eoc(output word_bt exit_code);
+    if (!DutCfg.LlcNotBypass) begin
+      $display("[SLINK] LLC bypass mode: fallback to JTAG wait for EOC");
+      jtag_wait_for_eoc(exit_code);
+      return;
+    end
+
+    $display("[SLINK] Waiting for EOC at 0x%h", AmRegs + cheshire_reg_pkg::CHESHIRE_SCRATCH_2_OFFSET);
     slink_poll_bit0(AmRegs + cheshire_reg_pkg::CHESHIRE_SCRATCH_2_OFFSET, exit_code, 800);
+    $display("[SLINK] EOC observed raw=0x%08h", exit_code);
     exit_code >>= 1;
     if (exit_code) $error("[SLINK] FAILED: return code %0d", exit_code);
     else $display("[SLINK] SUCCESS");
