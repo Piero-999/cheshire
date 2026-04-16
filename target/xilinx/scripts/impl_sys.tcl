@@ -51,7 +51,7 @@ set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 synth_design -rtl -name rtl_1
 report_clocks -file ${project_root}/clocks.rpt
 
-return
+
 
 # Synthesis
 launch_runs -jobs $num_jobs synth_1

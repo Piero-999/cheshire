@@ -10,14 +10,14 @@
 
 `include "cheshire/typedef.svh"
 `include "phy_definitions.svh"
-
+`define TARGET_ZCU102
 // TODO: Expose more IO: unused SPI CS, Serial Link, etc.
 
 module cheshire_top_xilinx import cheshire_pkg::*; #(
   localparam int unsigned Ddr4CsNWidth = 1,
-  localparam int unsigned Ddr4DmDbiNWidth = 8,
-  localparam int unsigned Ddr4DqWidth = 64,
-  localparam int unsigned Ddr4DqsWidth = 8
+  localparam int unsigned Ddr4DmDbiNWidth = 2,
+  localparam int unsigned Ddr4DqWidth = 16,
+  localparam int unsigned Ddr4DqsWidth = 2
 )(
   input  logic  sys_clk_p,
   input  logic  sys_clk_n,
@@ -490,6 +490,10 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   );
 `endif
 
+  logic sys_clk;
+  logic soc_clk;
+  logic dram_ref_clk;
+
   //////////////
   // DRAM MIG //
   //////////////
@@ -514,7 +518,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .sys_rst_i    ( sys_rst ),
     .soc_resetn_i ( rst_n   ),
     .soc_clk_i    ( soc_clk ),
-    .dram_clk_i   ( sys_clk ),
+    .dram_clk_i   ( dram_ref_clk ),
     .soc_req_i    ( axi_dram_mst_req ),
     .soc_rsp_o    ( axi_dram_mst_rsp ),
     .*
@@ -557,9 +561,6 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign axi_dram_mst_req = axi_llc_mst_req;
   assign axi_llc_mst_rsp  = axi_dram_mst_rsp;
 `endif
-
-  logic sys_clk;
-  logic soc_clk;
 
   //////////////////
   // Cheshire SoC //
@@ -834,6 +835,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   // Segnali tra DW converter (master, 32-bit) e axi_to_mem
   axi_bram_req_t axi_bram_req;
   axi_bram_rsp_t axi_bram_rsp;
+  axi_bram_req_t axi_bram_req_cut;
+  axi_bram_rsp_t axi_bram_rsp_cut;
 
   axi_dw_converter #(
     .AxiMaxReads          ( 4 ),
@@ -864,6 +867,24 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .mst_resp_i ( axi_bram_rsp )
   );
 
+  axi_cut #(
+    .Bypass     ( 1'b0 ),
+    .aw_chan_t  ( axi_bram_aw_chan_t ),
+    .w_chan_t   ( axi_bram_w_chan_t  ),
+    .b_chan_t   ( axi_bram_b_chan_t  ),
+    .ar_chan_t  ( axi_bram_ar_chan_t ),
+    .r_chan_t   ( axi_bram_r_chan_t  ),
+    .axi_req_t  ( axi_bram_req_t ),
+    .axi_resp_t ( axi_bram_rsp_t )
+  ) i_bram_axi_cut (
+    .clk_i      ( soc_clk ),
+    .rst_ni     ( rst_n ),
+    .slv_req_i  ( axi_bram_req ),
+    .slv_resp_o ( axi_bram_rsp ),
+    .mst_req_o  ( axi_bram_req_cut ),
+    .mst_resp_i ( axi_bram_rsp_cut )
+  );
+
   // Segnali SRAM interface (ora a 32-bit)
   logic        bram_req, bram_we, bram_rvalid;
   logic [CfgAddrWidth-1:0] bram_addr_full;
@@ -882,10 +903,10 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .clk_i       ( soc_clk ),
     .rst_ni      ( rst_n ),
     .busy_o      ( ),
-    .axi_req_i   ( axi_bram_req ),
-    .axi_resp_o  ( axi_bram_rsp ),
+    .axi_req_i   ( axi_bram_req_cut ),
+    .axi_resp_o  ( axi_bram_rsp_cut ),
     .mem_req_o   ( bram_req ),
-    .mem_gnt_i   ( bram_req ),          // BRAM sempre pronta
+    .mem_gnt_i   ( 1'b1 ),              // BRAM sempre pronta
     .mem_addr_o  ( bram_addr_full ),
     .mem_wdata_o ( bram_wdata ),
     .mem_strb_o  ( bram_strb ),
@@ -898,7 +919,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   // read valid 1 ciclo dopo la request (come fa cheshire_soc per debug mem)
   always_ff @(posedge soc_clk or negedge rst_n) begin
     if (!rst_n) bram_rvalid <= 1'b0;
-    else        bram_rvalid <= bram_req & ~bram_we;
+    else        bram_rvalid <= bram_req;
   end
 
   // Connessione alla BRAM port A (tutto a 32-bit, nessun troncamento)
@@ -938,6 +959,14 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign uart_rx_i        = vio_uart_sel ? uart_rx_i_cp2108 : uart_rx_i_gpio;
 
 `ifdef USE_MPSOC
+  IBUFDS #(
+    .IBUF_LOW_PWR ("FALSE")
+  ) i_bufds_dram_ref_clk (
+    .I  ( sys_clk_p     ),
+    .IB ( sys_clk_n     ),
+    .O  ( dram_ref_clk  )
+  );
+
   zcu102_mpsoc_wrapper MPSoC_controller_0 (
     //.BRAM_PORTA_addr(AERAM_addr),
     //.BRAM_PORTA_clk (AERAM_clk),
@@ -946,8 +975,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     //.BRAM_PORTA_rst (AERAM_rst),
     //.BRAM_PORTA_we  (AERAM_we),
     //.BRAM_PORTA_dout(AERAM_dout),
-    .CLK_IN1_D_clk_n(sys_clk_n),
-    .CLK_IN1_D_clk_p(sys_clk_p),
+    .sys_clk_i (dram_ref_clk),
     .clk_48  ( ),
     .clk_50   ( soc_clk  ),
     .clk_20   ( ),
@@ -968,6 +996,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .IB ( sys_clk_n ),
     .O  ( sys_clk   )
   );
+
+  assign dram_ref_clk = sys_clk;
 
   clkwiz i_clkwiz (
     .clk_in1  ( sys_clk ),

@@ -102,9 +102,9 @@ module dram_wrapper_xilinx #(
     EnCdc         : 1,    // 333 MHz AXI (cf. CdcLogDepth)
     CdcLogDepth   : 5,
     IdWidth       : 8,
-    AddrWidth     : 31,
-    DataWidth     : 512,
-    StrobeWidth   : 64,
+    AddrWidth     : 29,
+    DataWidth     : 128,
+    StrobeWidth   : 16,
     MaxUniqIds    : 8,    // TODO: suboptimal, but limited by CVA6/LLC
     MaxTxns       : 24    // TODO: suboptimal, but limited by CVA6/LLC
   };

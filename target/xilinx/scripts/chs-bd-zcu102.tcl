@@ -8,7 +8,7 @@ create_bd_design $design_name
 #Vivado 2024.2: zynq_ultra_ps_e:3.5
 #Vivado 2022.x: zynq_ultra_ps_e:3.4
 #Vivado 2020.2: zynq_ultra_ps_e:3.3
-create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0
+create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_0
 
 set_property -dict [list \
   CONFIG.PSU__DDRC__ENABLE {0} \
@@ -53,8 +53,8 @@ set_property -dict [list \
   CONFIG.CLK_IN1_BOARD_INTERFACE {Custom} \
   CONFIG.RESET_BOARD_INTERFACE {Custom} \
   CONFIG.USE_RESET {true} \
-  CONFIG.PRIM_SOURCE {Differential_clock_capable_pin} \
-  CONFIG.PRIM_IN_FREQ {125.000} \
+  CONFIG.PRIM_SOURCE {No_buffer} \
+  CONFIG.PRIM_IN_FREQ {300.000} \
   CONFIG.CLKOUT1_USED {true} \
   CONFIG.CLKOUT2_USED {true} \
   CONFIG.CLKOUT3_USED {true} \
@@ -79,9 +79,9 @@ set_property -dict [list \
   CONFIG.NUM_OUT_CLKS {5} \
   ] [get_bd_cells clk_wiz_0]
 
-create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_IN1_D
-set_property CONFIG.FREQ_HZ 125000000 [get_bd_intf_ports /CLK_IN1_D]
-connect_bd_intf_net [get_bd_intf_pins clk_wiz_0/CLK_IN1_D] [get_bd_intf_ports CLK_IN1_D]
+create_bd_port -dir I -type clk sys_clk_i
+set_property CONFIG.FREQ_HZ 300000000 [get_bd_ports /sys_clk_i]
+connect_bd_net [get_bd_pins /clk_wiz_0/clk_in1] [get_bd_ports sys_clk_i]
 
 create_bd_port -dir O -type clk clk_48
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_48] [get_bd_ports clk_48]

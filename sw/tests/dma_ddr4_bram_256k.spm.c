@@ -51,10 +51,6 @@ int main(void) {
     bram[last_idx] = last_word;
     __asm__ volatile("li t0,0xdeb2");
 
-    
-    //printf("dio porco \n");
-    //uart_write_flush(&__base_uart);
-
     fence();
     //*scratch3 = STEP_WRITES;
     //*scratch2= 0x1u;

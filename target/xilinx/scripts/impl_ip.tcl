@@ -264,14 +264,17 @@ switch $proj {
             zcu102 {
                 set_property -dict [list \
                     CONFIG.System_Clock {No_Buffer} \
-                    CONFIG.C0.DDR4_InputClockPeriod {9996} \
+                    CONFIG.Reference_Clock {No_Buffer} \
+                    CONFIG.C0_DDR4_BOARD_INTERFACE {ddr4_sdram_075} \
+                    CONFIG.C0_CLOCK_BOARD_INTERFACE {user_si570_sysclk} \
+                    CONFIG.C0.DDR4_InputClockPeriod {3332} \
                     CONFIG.C0.DDR4_CLKOUT0_DIVIDE {5} \
                     CONFIG.C0.DDR4_MemoryPart {MT40A256M16GE-083E} \
                     CONFIG.C0.DDR4_TimePeriod {833} \
-                    CONFIG.C0.DDR4_DataWidth {64} \
+                    CONFIG.C0.DDR4_DataWidth {16} \
                     CONFIG.C0.DDR4_DataMask {DM_NO_DBI} \
-                    CONFIG.C0.DDR4_AxiDataWidth {512} \
-                    CONFIG.C0.DDR4_AxiAddressWidth {31} \
+                    CONFIG.C0.DDR4_AxiDataWidth {128} \
+                    CONFIG.C0.DDR4_AxiAddressWidth {29} \
                     CONFIG.C0.DDR4_AxiIDWidth {8} \
                     CONFIG.C0.DDR4_AxiSelection {true} \
                     CONFIG.ADDN_UI_CLKOUT1_FREQ_HZ {100} \
