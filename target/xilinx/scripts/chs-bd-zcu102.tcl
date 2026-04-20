@@ -13,7 +13,7 @@ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_
 set_property -dict [list \
   CONFIG.PSU__DDRC__ENABLE {0} \
   CONFIG.PSU__UART0__PERIPHERAL__ENABLE {1} \
-  CONFIG.PSU__USE__M_AXI_GP0 {0} \
+  CONFIG.PSU__USE__M_AXI_GP0 {1} \
   CONFIG.PSU__USE__M_AXI_GP2 {0} \
   CONFIG.PSU__FPGA_PL0_ENABLE {0} \
 ] [get_bd_cells zynq_ultra_ps_e_0]
@@ -97,6 +97,20 @@ connect_bd_net [get_bd_pins /clk_wiz_0/clk_15] [get_bd_ports clk_15]
 
 create_bd_port -dir O -type clk sys_clk
 connect_bd_net [get_bd_pins /clk_wiz_0/sys_clk] [get_bd_ports sys_clk]
+
+# PS->PL AXI master clock domain aligned with Cheshire SoC clock. 
+connect_bd_net [get_bd_pins /clk_wiz_0/clk_50] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk]
+
+# Export PS AXI master so top-level RTL can bridge into Cheshire interconnect.
+create_bd_intf_port -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M_AXI_HPM0_FPD
+set_property -dict [list \
+  CONFIG.PROTOCOL {AXI4} \
+  CONFIG.ADDR_WIDTH {40} \
+  CONFIG.DATA_WIDTH {128} \
+  CONFIG.FREQ_HZ {50000000} \
+] [get_bd_intf_ports /M_AXI_HPM0_FPD]
+set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_HPM0_FPD} [get_bd_ports /clk_50]
+connect_bd_intf_net [get_bd_intf_pins /zynq_ultra_ps_e_0/M_AXI_HPM0_FPD] [get_bd_intf_ports /M_AXI_HPM0_FPD]
 
 # VIO
 

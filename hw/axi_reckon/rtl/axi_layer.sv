@@ -88,9 +88,13 @@ module axi_layer import cheshire_pkg::*; #
   genvar i;
   generate
     for (i = 0; i < 32; i = i + 1) begin : GEN_IN_REGS
-      assign in_reg[i] = axi_reg_i[i];
+      if (i < AxiRegsNin) begin : GEN_IN_REGS_MAP
+        assign in_reg[i] = axi_reg_i[i];
+      end else begin : GEN_IN_REGS_ZERO
+        assign in_reg[i] = '0;
+      end
     end
-    for (i = 0; i < 8; i = i + 1) begin : GEN_OUT_REGS
+    for (i = 0; i < AxiRegsNout; i = i + 1) begin : GEN_OUT_REGS
       assign axi_reg_o[i] = out_reg[i];
     end
   endgenerate
@@ -128,9 +132,9 @@ module axi_layer import cheshire_pkg::*; #
   assign lite_resp.w_ready    = s_axi_lite_rf_wready;
 
   // B channel (master -> slave / slave -> master mapping)
-  assign lite_req.b_ready      = s_axi_lite_rf_bready;
-  assign s_axi_lite_rf_bresp  = lite_resp.b.resp;
-  assign s_axi_lite_rf_bvalid = lite_resp.b_valid;
+  assign s_axi_lite_rf_bready = lite_req.b_ready;
+  assign lite_resp.b.resp     = s_axi_lite_rf_bresp;
+  assign lite_resp.b_valid    = s_axi_lite_rf_bvalid;
 
   // AR channel
   assign s_axi_lite_rf_araddr  = lite_req.ar.addr;
@@ -139,10 +143,10 @@ module axi_layer import cheshire_pkg::*; #
   assign lite_resp.ar_ready    = s_axi_lite_rf_arready;
 
   // R channel (slave -> master)
-  assign s_axi_lite_rf_rdata  = lite_resp.r.data;
-  assign s_axi_lite_rf_rresp  = lite_resp.r.resp;
-  assign s_axi_lite_rf_rvalid = lite_resp.r_valid;
-  assign lite_req.r_ready     = s_axi_lite_rf_rready;
+  assign s_axi_lite_rf_rready = lite_req.r_ready;
+  assign lite_resp.r.data     = s_axi_lite_rf_rdata;
+  assign lite_resp.r.resp     = s_axi_lite_rf_rresp;
+  assign lite_resp.r_valid    = s_axi_lite_rf_rvalid;
 
   // Map RF packed slave <-> converter packed full AXI types
   // full_req is driven from the RF packed view; full_resp drives RF packed response

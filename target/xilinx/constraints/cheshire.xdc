@@ -26,7 +26,7 @@ set_property CLOCK_DEDICATED_ROUTE FALSE $all_in_mux
 set_property CLOCK_BUFFER_TYPE NONE $all_in_mux
 
 # Allow LUT loop
-set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets axi_layer_0/i_axi_to_axi_lite/i_axi_burst_splitter/i_axi_burst_splitter_gran/i_axi_burst_splitter_gran_ar_chan/i_axi_burst_splitter_gran_counters/i_idq/*]
+#set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets axi_layer_0/i_axi_to_axi_lite/i_axi_burst_splitter/i_axi_burst_splitter_gran/i_axi_burst_splitter_gran_ar_chan/i_axi_burst_splitter_gran_counters/i_idq/*]
 # set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets axi_layer_0/i_axi_to_axi_lite/i_axi_burst_splitter/i_axi_burst_splitter_gran/i_axi_burst_splitter_gran_aw_chan/i_axi_burst_splitter_gran_counters/i_idq/*]
 
 ########

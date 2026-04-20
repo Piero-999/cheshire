@@ -8,7 +8,7 @@ VSIM_DIR="$ROOT_DIR/target/sim/vsim"
 QHOME="$(dirname "$(dirname "$(which vsim)")")"
 
 #BINARY="${BINARY:-$ROOT_DIR/sw/tests/helloworld.spm.elf}"
-BINARY="${BINARY:-$ROOT_DIR/sw/tests/dma_ddr4_bram_256k.spm.spm.elf}"
+BINARY="${BINARY:-$ROOT_DIR/sw/tests/dma_ddr4_bram_256k.spm.dram.elf}"
 BOOTMODE="${BOOTMODE:-0}"
 PRELMODE="${PRELMODE:-1}"
 USE_DRAMSYS="${USE_DRAMSYS:-1}"
