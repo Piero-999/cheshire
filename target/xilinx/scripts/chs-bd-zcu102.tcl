@@ -20,83 +20,60 @@ set_property -dict [list \
 
 create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0
 
-# set_property -dict  [list \
-#   CONFIG.CLK_IN1_BOARD_INTERFACE {user_si570_sysclk} \
-#   CONFIG.RESET_BOARD_INTERFACE {Custom} \
-#   CONFIG.PRIM_SOURCE {Differential_clock_capable_pin} \
-#   CONFIG.CLKOUT2_USED {true} \
-#   CONFIG.USE_LOCKED {false} \
-#   CONFIG.USE_RESET {false} \
-#   CONFIG.CLKOUT3_USED {true} \
-#   CONFIG.CLKOUT4_USED {true} \
-#   CONFIG.CLK_OUT1_PORT {clk_100} \
-#   CONFIG.CLK_OUT2_PORT {clk_50} \
-#   CONFIG.CLK_OUT3_PORT {clk_20} \
-#   CONFIG.CLK_OUT4_PORT {clk_10} \
-#   CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {50.000} \
-#   CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {20.000} \
-#   CONFIG.CLKOUT4_REQUESTED_OUT_FREQ {10.000} \
-#   CONFIG.PRIM_SOURCE {No_buffer} \
-#   CONFIG.MMCM_CLKOUT1_DIVIDE {24} \
-#   CONFIG.MMCM_CLKOUT2_DIVIDE {60} \
-#   CONFIG.MMCM_CLKOUT3_DIVIDE {120} \
-#   CONFIG.NUM_OUT_CLKS {4} \
-#   CONFIG.CLKOUT2_JITTER {132.683} \
-#   CONFIG.CLKOUT2_PHASE_ERROR {87.180} \
-#   CONFIG.CLKOUT3_JITTER {162.167} \
-#   CONFIG.CLKOUT3_PHASE_ERROR {87.180} \
-#   CONFIG.CLKOUT4_JITTER {188.586} \
-#   CONFIG.CLKOUT4_PHASE_ERROR {87.180} \
-# ] [get_bd_cells clk_wiz_0]
 
 set_property -dict [list \
-  CONFIG.CLK_IN1_BOARD_INTERFACE {Custom} \
-  CONFIG.RESET_BOARD_INTERFACE {Custom} \
-  CONFIG.USE_RESET {true} \
-  CONFIG.PRIM_SOURCE {No_buffer} \
-  CONFIG.PRIM_IN_FREQ {300.000} \
-  CONFIG.CLKOUT1_USED {true} \
-  CONFIG.CLKOUT2_USED {true} \
-  CONFIG.CLKOUT3_USED {true} \
-  CONFIG.CLKOUT4_USED {true} \
-  CONFIG.CLKOUT5_USED {true} \
-  CONFIG.CLK_OUT1_PORT {clk_50} \
-  CONFIG.CLK_OUT2_PORT {clk_48} \
-  CONFIG.CLK_OUT3_PORT {clk_20} \
-  CONFIG.CLK_OUT4_PORT {clk_15} \
-  CONFIG.CLK_OUT5_PORT {sys_clk} \
+  CONFIG.AUTO_PRIMITIVE {MMCM} \
+  CONFIG.CLKIN1_JITTER_PS {80.0} \
+  CONFIG.CLKOUT1_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT1_JITTER {196.543} \
+  CONFIG.CLKOUT1_PHASE_ERROR {222.305} \
   CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {50.000} \
-  CONFIG.CLKOUT1_JITTER {116.415} \
-  CONFIG.CLKOUT1_PHASE_ERROR {77.836} \
-  CONFIG.CLKOUT2_JITTER {117.369} \
-  CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {48.000} \
-  CONFIG.CLKOUT3_JITTER {140.023} \
-  CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {20.000} \
-  CONFIG.CLKOUT4_JITTER {160.570} \
-  CONFIG.CLKOUT4_PHASE_ERROR {77.836} \
-  CONFIG.CLKOUT4_REQUESTED_OUT_FREQ {15.000} \
-  CONFIG.CLKOUT5_REQUESTED_OUT_FREQ {100.000} \
-  CONFIG.NUM_OUT_CLKS {5} \
-  ] [get_bd_cells clk_wiz_0]
+  CONFIG.CLKOUT2_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT2_JITTER {239.833} \
+  CONFIG.CLKOUT2_PHASE_ERROR {222.305} \
+  CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {15.000} \
+  CONFIG.CLKOUT2_USED {true} \
+  CONFIG.CLKOUT3_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT4_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT5_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT6_DRIVES {BUFGCE} \
+  CONFIG.CLKOUT7_DRIVES {BUFGCE} \
+  CONFIG.FEEDBACK_SOURCE {FDBK_AUTO} \
+  CONFIG.MMCM_BANDWIDTH {OPTIMIZED} \
+  CONFIG.MMCM_CLKFBOUT_MULT_F {48.000} \
+  CONFIG.MMCM_CLKIN1_PERIOD {8.000} \
+  CONFIG.MMCM_CLKOUT0_DIVIDE_F {24.000} \
+  CONFIG.MMCM_CLKOUT1_DIVIDE {80} \
+  CONFIG.MMCM_COMPENSATION {AUTO} \
+  CONFIG.MMCM_DIVCLK_DIVIDE {5} \
+  CONFIG.NUM_OUT_CLKS {2} \
+  CONFIG.OPTIMIZE_CLOCKING_STRUCTURE_EN {true} \
+  CONFIG.PRIMITIVE {Auto} \
+  CONFIG.PRIM_IN_FREQ {125.000} \
+  CONFIG.PRIM_SOURCE {Differential_clock_capable_pin} \
+  CONFIG.SECONDARY_SOURCE {Single_ended_clock_capable_pin} \
+  CONFIG.USE_DYN_PHASE_SHIFT {false} \
+  CONFIG.USE_LOCKED {false} \
+  CONFIG.USE_PHASE_ALIGNMENT {true} \
+  CONFIG.USE_RESET {false} \
+  CONFIG.USE_SAFE_CLOCK_STARTUP {true} \
+  CONFIG.CLK_OUT1_PORT {clk_50} \
+  CONFIG.CLK_OUT2_PORT {clk_15} \
+] [get_bd_cells clk_wiz_0]
 
-create_bd_port -dir I -type clk sys_clk_i
-set_property CONFIG.FREQ_HZ 300000000 [get_bd_ports /sys_clk_i]
-connect_bd_net [get_bd_pins /clk_wiz_0/clk_in1] [get_bd_ports sys_clk_i]
 
-create_bd_port -dir O -type clk clk_48
-connect_bd_net [get_bd_pins /clk_wiz_0/clk_48] [get_bd_ports clk_48]
+create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_IN1_D
+set_property CONFIG.FREQ_HZ 125000000 [get_bd_intf_ports /CLK_IN1_D]
+connect_bd_intf_net [get_bd_intf_pins clk_wiz_0/CLK_IN1_D] [get_bd_intf_ports CLK_IN1_D]
+
 
 create_bd_port -dir O -type clk clk_50
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_50] [get_bd_ports clk_50]
 
-create_bd_port -dir O -type clk clk_20
-connect_bd_net [get_bd_pins /clk_wiz_0/clk_20] [get_bd_ports clk_20]
 
 create_bd_port -dir O -type clk clk_15
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_15] [get_bd_ports clk_15]
 
-create_bd_port -dir O -type clk sys_clk
-connect_bd_net [get_bd_pins /clk_wiz_0/sys_clk] [get_bd_ports sys_clk]
 
 # PS->PL AXI master clock domain aligned with Cheshire SoC clock. 
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_50] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk]

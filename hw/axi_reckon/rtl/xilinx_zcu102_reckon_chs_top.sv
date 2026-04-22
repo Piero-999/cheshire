@@ -136,7 +136,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     ret.AxiExtRegionIdx  [1] = 1;
     ret.AxiExtRegionStart[1] = 64'h4800_0000;
     ret.AxiExtRegionEnd  [1] = 64'h4804_0000;
-
+    // Enable one external AXI master ingress (PS -> Cheshire).
+    ret.AxiExtNumMst    = 1;
     `ifdef USE_USB
       ret.Usb = 1;
     `else
@@ -191,6 +192,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   localparam int unsigned CfgAddrWidth     = FPGACfg.AddrWidth;
   localparam int unsigned CfgAxiDataWidth  = FPGACfg.AxiDataWidth;
   localparam int unsigned CfgAxiUserWidth  = FPGACfg.AxiUserWidth;
+   localparam int unsigned CfgAxiExtNumMst  = FPGACfg.AxiExtNumMst;
   localparam int unsigned CfgAxiMstIdWidth = FPGACfg.AxiMstIdWidth;
   localparam int unsigned CfgAxiExtNumSlv  = FPGACfg.AxiExtNumSlv;
   localparam int unsigned CfgNumAxiIn      = get_num_axi_in(FPGACfg);
@@ -206,11 +208,77 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   typedef logic [CfgAxiUserWidth-1:0] bram_user_t;
   `AXI_TYPEDEF_ALL_CT(axi_bram, axi_bram_req_t, axi_bram_rsp_t, \
       bram_addr_t, bram_id_t, bram_data_t, bram_strb_t, bram_user_t)
+`ifdef USE_MPSOC
+  // PS HPM0 AXI parameters (fixed by Zynq UltraScale+ PS).
+  localparam int unsigned PsAxiAddrWidth = 40;
+  localparam int unsigned PsAxiDataWidth = 128;
+  localparam int unsigned PsAxiIdWidth   = 16;
 
-  ////////////////////////
-  //  Clock Generation  in the MPSoC//
-  ////////////////////////
+  typedef logic [CfgAddrWidth-1:0]         ps_axi_addr_t;
+  typedef logic [PsAxiIdWidth-1:0]         ps_axi_id_t;
+  typedef logic [PsAxiDataWidth-1:0]       ps_axi_data_t;
+  typedef logic [PsAxiDataWidth/8-1:0]     ps_axi_strb_t;
+  typedef logic [CfgAxiUserWidth-1:0]      ps_axi_user_t;
+  `AXI_TYPEDEF_ALL_CT(ps_axi, ps_axi_req_t, ps_axi_rsp_t, \
+      ps_axi_addr_t, ps_axi_id_t, ps_axi_data_t, ps_axi_strb_t, ps_axi_user_t)
 
+  typedef logic [CfgAxiDataWidth-1:0]      ps_axi_dw_data_t;
+  typedef logic [CfgAxiDataWidth/8-1:0]    ps_axi_dw_strb_t;
+  `AXI_TYPEDEF_ALL_CT(ps_axi_dw, ps_axi_dw_req_t, ps_axi_dw_rsp_t, \
+      ps_axi_addr_t, ps_axi_id_t, ps_axi_dw_data_t, ps_axi_dw_strb_t, ps_axi_user_t)
+
+  // Flattened PS AXI interface from block design wrapper.
+  logic [PsAxiIdWidth-1:0]     ps_m_axi_hpm0_awid;
+  logic [PsAxiAddrWidth-1:0]   ps_m_axi_hpm0_awaddr;
+  logic [7:0]                  ps_m_axi_hpm0_awlen;
+  logic [2:0]                  ps_m_axi_hpm0_awsize;
+  logic [1:0]                  ps_m_axi_hpm0_awburst;
+  logic                        ps_m_axi_hpm0_awlock;
+  logic [3:0]                  ps_m_axi_hpm0_awcache;
+  logic [2:0]                  ps_m_axi_hpm0_awprot;
+  logic [3:0]                  ps_m_axi_hpm0_awqos;
+  logic [15:0]                 ps_m_axi_hpm0_awuser;
+  logic                        ps_m_axi_hpm0_awvalid;
+  logic                        ps_m_axi_hpm0_awready;
+
+  logic [PsAxiDataWidth-1:0]   ps_m_axi_hpm0_wdata;
+  logic [PsAxiDataWidth/8-1:0] ps_m_axi_hpm0_wstrb;
+  logic                        ps_m_axi_hpm0_wlast;
+  logic                        ps_m_axi_hpm0_wvalid;
+  logic                        ps_m_axi_hpm0_wready;
+
+  logic [PsAxiIdWidth-1:0]     ps_m_axi_hpm0_bid;
+  logic [1:0]                  ps_m_axi_hpm0_bresp;
+  logic                        ps_m_axi_hpm0_bvalid;
+  logic                        ps_m_axi_hpm0_bready;
+
+  logic [PsAxiIdWidth-1:0]     ps_m_axi_hpm0_arid;
+  logic [PsAxiAddrWidth-1:0]   ps_m_axi_hpm0_araddr;
+  logic [7:0]                  ps_m_axi_hpm0_arlen;
+  logic [2:0]                  ps_m_axi_hpm0_arsize;
+  logic [1:0]                  ps_m_axi_hpm0_arburst;
+  logic                        ps_m_axi_hpm0_arlock;
+  logic [3:0]                  ps_m_axi_hpm0_arcache;
+  logic [2:0]                  ps_m_axi_hpm0_arprot;
+  logic [3:0]                  ps_m_axi_hpm0_arqos;
+  logic [15:0]                 ps_m_axi_hpm0_aruser;
+  logic                        ps_m_axi_hpm0_arvalid;
+  logic                        ps_m_axi_hpm0_arready;
+
+  logic [PsAxiIdWidth-1:0]     ps_m_axi_hpm0_rid;
+  logic [PsAxiDataWidth-1:0]   ps_m_axi_hpm0_rdata;
+  logic [1:0]                  ps_m_axi_hpm0_rresp;
+  logic                        ps_m_axi_hpm0_rlast;
+  logic                        ps_m_axi_hpm0_rvalid;
+  logic                        ps_m_axi_hpm0_rready;
+
+  ps_axi_req_t                 ps_axi_req;
+  ps_axi_rsp_t                 ps_axi_rsp;
+  ps_axi_dw_req_t              ps_axi_dw_req;
+  ps_axi_dw_rsp_t              ps_axi_dw_rsp;
+  axi_mst_req_t                ps_axi_mst_req;
+  axi_mst_rsp_t                ps_axi_mst_rsp;
+`endif
 
   /////////////////////
   //  System Inputs  //
@@ -319,93 +387,104 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   logic i2c_scl_soc_in;
   logic i2c_sda_en;
   logic i2c_scl_en;
+//
+//`ifdef USE_QSPI
+//`ifndef USE_STARTUPE3
+//`ifndef USE_STARTUPE2
+//  // If a STARTUPE2 is present, this is wired there.
+//  output wire        spih_sck_o,
+//`endif
+//  output wire        spih_csb_o,
+//  inout  wire  [3:0] spih_sd_io,
+//`endif
+//`endif
+//
+//// On VCU128/VCU118/ZCU102, SPI ports are not directly available
+//`ifdef USE_STARTUPE3
+//  STARTUPE3 #(
+//    .PROG_USR("FALSE"),
+//    .SIM_CCLK_FREQ(0.0)
+//  ) i_startupe3 (
+//    .CFGCLK     ( ),
+//    .CFGMCLK    ( ),
+//    .DI         ( qspi_dqi ),
+//    .EOS        ( ),
+//    .PREQ       ( ),
+//    .DO         ( qspi_dqo ),
+//    .DTS        ( qspi_dqo_ts ),
+//    .FCSBO      ( qspi_cs_b[1] ),
+//    .FCSBTS     ( qspi_cs_b_ts[1] ),
+//    .GSR        ( 1'b0 ),
+//    .GTS        ( 1'b0 ),
+//    .KEYCLEARB  ( 1'b1 ),
+//    .PACK       ( 1'b0 ),
+//    .USRCCLKO   ( qspi_clk ),
+//    .USRCCLKTS  ( qspi_clk_ts ),
+//    .USRDONEO   ( 1'b1 ),
+//    .USRDONETS  ( 1'b1 )
+//  );
+//`else
+//`ifdef USE_STARTUPE2
+//  (*keep="TRUE"*)
+//  STARTUPE2 #(
+//    .PROG_USR("FALSE"),
+//    .SIM_CCLK_FREQ(0.0)
+//    ) i_startupe2 (
+//    .CFGCLK     ( ),
+//    .CFGMCLK    ( ),
+//    .EOS        ( ),
+//    .PREQ       ( ),
+//    .CLK        ( 1'b0 ),
+//    .GSR        ( 1'b0 ),
+//    .GTS        ( 1'b0 ),
+//    .KEYCLEARB  ( 1'b0 ),
+//    .PACK       ( 1'b0 ),
+//    .USRCCLKO   ( spi_sck_soc ),
+//    .USRCCLKTS  ( 1'b0 ),
+//    .USRDONEO   ( 1'b0 ),
+//    .USRDONETS  ( 1'b0 )
+//  );
+//`else
+//  IOBUF #(
+//    .DRIVE        ( 12        ),
+//    .IBUF_LOW_PWR ( "FALSE"   ),
+//    .IOSTANDARD   ( "DEFAULT" ),
+//    .SLEW         ( "FAST"    )
+//  ) i_spih_sck_iobuf (
+//    .O  (  ),
+//    .IO ( spih_sck_o  ),
+//    .I  ( spi_sck_soc ),
+//    .T  ( ~spi_sck_en )
+//  );
+//`endif
+//
+//IOBUF #(
+//  .DRIVE        ( 12        ),
+//  .IBUF_LOW_PWR ( "FALSE"   ),
+//  .IOSTANDARD   ( "DEFAULT" ),
+//  .SLEW         ( "FAST"    )
+//) i_spih_csb_iobuf (
+//  .O  (  ),
+//  .IO ( spih_csb_o ),
+//  .I  ( spi_cs_soc [1] ),
+//  .T  ( ~spi_cs_en [1] )
+//);
+//
+//  for (genvar i = 0; i < 4; ++i) begin : gen_qspi_iobufs
+//    IOBUF #(
+//      .DRIVE        ( 12        ),
+//      .IBUF_LOW_PWR ( "FALSE"   ),
+//      .IOSTANDARD   ( "DEFAULT" ),
+//      .SLEW         ( "FAST"    )
+//    ) i_spih_sd_iobuf (
+//      .O  ( spi_sd_spih_in [i] ),
+//      .IO ( spih_sd_io     [i] ),
+//      .I  ( spi_sd_soc_out [i] ),
+//      .T  ( ~spi_sd_en     [i] )
+//    );
+//  end
+//`endif
 
-  // On VCU128/VCU118/ZCU102, SPI ports are not directly available
-`ifdef USE_STARTUPE3
-  STARTUPE3 #(
-    .PROG_USR("FALSE"),
-    .SIM_CCLK_FREQ(0.0)
-  ) i_startupe3 (
-    .CFGCLK     ( ),
-    .CFGMCLK    ( ),
-    .DI         ( qspi_dqi ),
-    .EOS        ( ),
-    .PREQ       ( ),
-    .DO         ( qspi_dqo ),
-    .DTS        ( qspi_dqo_ts ),
-    .FCSBO      ( qspi_cs_b[1] ),
-    .FCSBTS     ( qspi_cs_b_ts[1] ),
-    .GSR        ( 1'b0 ),
-    .GTS        ( 1'b0 ),
-    .KEYCLEARB  ( 1'b1 ),
-    .PACK       ( 1'b0 ),
-    .USRCCLKO   ( qspi_clk ),
-    .USRCCLKTS  ( qspi_clk_ts ),
-    .USRDONEO   ( 1'b1 ),
-    .USRDONETS  ( 1'b1 )
-  );
-`else
-`ifdef USE_STARTUPE2
-  (*keep="TRUE"*)
-  STARTUPE2 #(
-    .PROG_USR("FALSE"),
-    .SIM_CCLK_FREQ(0.0)
-    ) i_startupe2 (
-    .CFGCLK     ( ),
-    .CFGMCLK    ( ),
-    .EOS        ( ),
-    .PREQ       ( ),
-    .CLK        ( 1'b0 ),
-    .GSR        ( 1'b0 ),
-    .GTS        ( 1'b0 ),
-    .KEYCLEARB  ( 1'b0 ),
-    .PACK       ( 1'b0 ),
-    .USRCCLKO   ( spi_sck_soc ),
-    .USRCCLKTS  ( 1'b0 ),
-    .USRDONEO   ( 1'b0 ),
-    .USRDONETS  ( 1'b0 )
-  );
-`else
-  IOBUF #(
-    .DRIVE        ( 12        ),
-    .IBUF_LOW_PWR ( "FALSE"   ),
-    .IOSTANDARD   ( "DEFAULT" ),
-    .SLEW         ( "FAST"    )
-  ) i_spih_sck_iobuf (
-    .O  (  ),
-    .IO ( spih_sck_o  ),
-    .I  ( spi_sck_soc ),
-    .T  ( ~spi_sck_en )
-  );
-`endif
-
-  IOBUF #(
-    .DRIVE        ( 12        ),
-    .IBUF_LOW_PWR ( "FALSE"   ),
-    .IOSTANDARD   ( "DEFAULT" ),
-    .SLEW         ( "FAST"    )
-  ) i_spih_csb_iobuf (
-    .O  (  ),
-    .IO ( spih_csb_o ),
-    .I  ( spi_cs_soc [1] ),
-    .T  ( ~spi_cs_en [1] )
-  );
-
-  for (genvar i = 0; i < 4; ++i) begin : gen_qspi_iobufs
-    IOBUF #(
-      .DRIVE        ( 12        ),
-      .IBUF_LOW_PWR ( "FALSE"   ),
-      .IOSTANDARD   ( "DEFAULT" ),
-      .SLEW         ( "FAST"    )
-    ) i_spih_sd_iobuf (
-      .O  ( spi_sd_spih_in [i] ),
-      .IO ( spih_sd_io     [i] ),
-      .I  ( spi_sd_soc_out [i] ),
-      .T  ( ~spi_sd_en     [i] )
-    );
-  end
-`endif
-`endif
 
   /////////////////////////
   // "RTC" Clock Divider //
@@ -506,7 +585,125 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   //////////////////
   // Cheshire SoC //
   //////////////////
+  axi_mst_req_t [iomsb(CfgAxiExtNumMst):0] axi_ext_mst_req;
+  axi_mst_rsp_t [iomsb(CfgAxiExtNumMst):0] axi_ext_mst_rsp;
 
+`ifdef USE_MPSOC
+  // Bridge PS AXI into Cheshire typed AXI records.
+  always_comb begin
+    ps_axi_req = '0;
+
+    ps_axi_req.aw.id     = ps_m_axi_hpm0_awid;
+    ps_axi_req.aw.addr   = {{(CfgAddrWidth-PsAxiAddrWidth){1'b0}}, ps_m_axi_hpm0_awaddr};
+    ps_axi_req.aw.len    = ps_m_axi_hpm0_awlen;
+    ps_axi_req.aw.size   = ps_m_axi_hpm0_awsize;
+    ps_axi_req.aw.burst  = ps_m_axi_hpm0_awburst;
+    ps_axi_req.aw.lock   = ps_m_axi_hpm0_awlock;
+    ps_axi_req.aw.cache  = ps_m_axi_hpm0_awcache;
+    ps_axi_req.aw.prot   = ps_m_axi_hpm0_awprot;
+    ps_axi_req.aw.qos    = ps_m_axi_hpm0_awqos;
+    ps_axi_req.aw.region = '0;
+    ps_axi_req.aw.atop   = '0;
+    ps_axi_req.aw.user   = '0;
+    ps_axi_req.aw_valid  = ps_m_axi_hpm0_awvalid;
+
+    ps_axi_req.w.data    = ps_m_axi_hpm0_wdata;
+    ps_axi_req.w.strb    = ps_m_axi_hpm0_wstrb;
+    ps_axi_req.w.last    = ps_m_axi_hpm0_wlast;
+    ps_axi_req.w.user    = '0;
+    ps_axi_req.w_valid   = ps_m_axi_hpm0_wvalid;
+
+    ps_axi_req.b_ready   = ps_m_axi_hpm0_bready;
+
+    ps_axi_req.ar.id     = ps_m_axi_hpm0_arid;
+    ps_axi_req.ar.addr   = {{(CfgAddrWidth-PsAxiAddrWidth){1'b0}}, ps_m_axi_hpm0_araddr};
+    ps_axi_req.ar.len    = ps_m_axi_hpm0_arlen;
+    ps_axi_req.ar.size   = ps_m_axi_hpm0_arsize;
+    ps_axi_req.ar.burst  = ps_m_axi_hpm0_arburst;
+    ps_axi_req.ar.lock   = ps_m_axi_hpm0_arlock;
+    ps_axi_req.ar.cache  = ps_m_axi_hpm0_arcache;
+    ps_axi_req.ar.prot   = ps_m_axi_hpm0_arprot;
+    ps_axi_req.ar.qos    = ps_m_axi_hpm0_arqos;
+    ps_axi_req.ar.region = '0;
+    ps_axi_req.ar.user   = '0;
+    ps_axi_req.ar_valid  = ps_m_axi_hpm0_arvalid;
+
+    ps_axi_req.r_ready   = ps_m_axi_hpm0_rready;
+  end
+
+  assign ps_m_axi_hpm0_awready = ps_axi_rsp.aw_ready;
+  assign ps_m_axi_hpm0_wready  = ps_axi_rsp.w_ready;
+  assign ps_m_axi_hpm0_bid     = ps_axi_rsp.b.id;
+  assign ps_m_axi_hpm0_bresp   = ps_axi_rsp.b.resp;
+  assign ps_m_axi_hpm0_bvalid  = ps_axi_rsp.b_valid;
+  assign ps_m_axi_hpm0_arready = ps_axi_rsp.ar_ready;
+  assign ps_m_axi_hpm0_rid     = ps_axi_rsp.r.id;
+  assign ps_m_axi_hpm0_rdata   = ps_axi_rsp.r.data;
+  assign ps_m_axi_hpm0_rresp   = ps_axi_rsp.r.resp;
+  assign ps_m_axi_hpm0_rlast   = ps_axi_rsp.r.last;
+  assign ps_m_axi_hpm0_rvalid  = ps_axi_rsp.r_valid;
+
+  axi_dw_converter #(
+    .AxiMaxReads          ( 8 ),
+    .AxiSlvPortDataWidth  ( PsAxiDataWidth ),
+    .AxiMstPortDataWidth  ( CfgAxiDataWidth ),
+    .AxiAddrWidth         ( CfgAddrWidth ),
+    .AxiIdWidth           ( PsAxiIdWidth ),
+    // Common AW, AR, B
+    .aw_chan_t            ( ps_axi_aw_chan_t ),
+    .b_chan_t             ( ps_axi_b_chan_t  ),
+    .ar_chan_t            ( ps_axi_ar_chan_t ),
+    // Master-side (64-bit) W, R
+    .mst_w_chan_t         ( ps_axi_dw_w_chan_t ),
+    .mst_r_chan_t         ( ps_axi_dw_r_chan_t ),
+    .axi_mst_req_t        ( ps_axi_dw_req_t ),
+    .axi_mst_resp_t       ( ps_axi_dw_rsp_t ),
+    // Slave-side (128-bit) W, R
+    .slv_w_chan_t         ( ps_axi_w_chan_t ),
+    .slv_r_chan_t         ( ps_axi_r_chan_t ),
+    .axi_slv_req_t        ( ps_axi_req_t ),
+    .axi_slv_resp_t       ( ps_axi_rsp_t )
+  ) i_ps_axi_dw_converter (
+    .clk_i      ( soc_clk ),
+    .rst_ni     ( rst_n ),
+    .slv_req_i  ( ps_axi_req ),
+    .slv_resp_o ( ps_axi_rsp ),
+    .mst_req_o  ( ps_axi_dw_req ),
+    .mst_resp_i ( ps_axi_dw_rsp )
+  );
+
+  axi_iw_converter #(
+    .AxiAddrWidth           ( CfgAddrWidth ),
+    .AxiDataWidth           ( CfgAxiDataWidth ),
+    .AxiUserWidth           ( CfgAxiUserWidth ),
+    .AxiSlvPortIdWidth      ( PsAxiIdWidth ),
+    .AxiSlvPortMaxUniqIds   ( 16 ),
+    .AxiSlvPortMaxTxnsPerId ( 8 ),
+    .AxiSlvPortMaxTxns      ( 16 ),
+    .AxiMstPortIdWidth      ( CfgAxiMstIdWidth ),
+    .AxiMstPortMaxUniqIds   ( 2 ** CfgAxiMstIdWidth ),
+    .AxiMstPortMaxTxnsPerId ( 8 ),
+    .slv_req_t              ( ps_axi_dw_req_t ),
+    .slv_resp_t             ( ps_axi_dw_rsp_t ),
+    .mst_req_t              ( axi_mst_req_t ),
+    .mst_resp_t             ( axi_mst_rsp_t )
+  ) i_ps_axi_iw_converter (
+    .clk_i      ( soc_clk ),
+    .rst_ni     ( rst_n ),
+    .slv_req_i  ( ps_axi_dw_req ),
+    .slv_resp_o ( ps_axi_dw_rsp ),
+    .mst_req_o  ( ps_axi_mst_req ),
+    .mst_resp_i ( ps_axi_mst_rsp )
+  );
+
+  assign axi_ext_mst_req[0] = ps_axi_mst_req;
+  assign ps_axi_mst_rsp     = axi_ext_mst_rsp[0];
+`else
+  assign axi_ext_mst_req = '0;
+`endif
+
+  axi_slv_req_t [(CfgAxiExtNumSlv-1):0] axi_slv_i;
+  axi_slv_rsp_t [(CfgAxiExtNumSlv-1):0] axi_slv_o;
   cheshire_soc #(
     .Cfg                ( FPGACfg ),
     .ExtHartinfo        ( '0 ),
@@ -526,8 +723,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .rtc_i              ( rtc_clk_q       ),
     .axi_llc_mst_req_o  ( axi_llc_mst_req ),
     .axi_llc_mst_rsp_i  ( axi_llc_mst_rsp ),
-    .axi_ext_mst_req_i  ( '0 ),
-    .axi_ext_mst_rsp_o  ( ),
+    .axi_ext_mst_req_i  ( axi_ext_mst_req ),
+    .axi_ext_mst_rsp_o  ( axi_ext_mst_rsp ),
     .axi_ext_slv_req_o  ( axi_slv_i ),
     .axi_ext_slv_rsp_i  ( axi_slv_o ),
 `ifdef USE_CFG_REGS
@@ -602,7 +799,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   // assign axi_gpio_i[4]       = batch_done;
   // assign axi_gpio_i[5]       = epoch_done;
 
-  logic [31:0] axi_batch_size, axi_n_samples, axi_do_eprop, infer_count;
+  logic [31:0] axi_batch_size, axi_n_samples, axi_do_eprop, infer_count,axi_n_epochs ;
+  logic [11:0] infer_count_12b;
   // logic [31:0] reckon_ctrl   [5:0];
   logic [31:0] reckon_ctrl_i [3:0];
   logic [31:0] reckon_ctrl_o [1:0];
@@ -662,18 +860,13 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .BRAM_PORTA_rst(AERAM_rst),
     .BRAM_PORTA_we(AERAM_we),
     .BRAM_PORTA_dout(AERAM_dout),
-    .infer_count_o(infer_count),
+    .infer_count_o(infer_count_12b),
     .batch_size_i(axi_batch_size[11:0]),
     .n_samples_i(axi_n_samples[11:0]),
-    .do_eprop_i(axi_do_eprop[2:0]),
-    //  Streaming DDR4→BRAM: nuovi collegamenti //
-    .ram_addr_half_o(ram_addr_half),
-    .fill_done_i(fill_done),
-    .data_exhausted_i(data_exhausted)
+    .do_eprop_i(axi_do_eprop[2:0])
   );
 
-  axi_slv_req_t [(CfgAxiExtNumSlv-1):0] axi_slv_i;
-  axi_slv_rsp_t [(CfgAxiExtNumSlv-1):0] axi_slv_o;
+
 
   axi_layer #(
     .Cfg               ( FPGACfg ),
@@ -833,16 +1026,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   );
 
   zcu102_mpsoc_wrapper MPSoC_controller_0 (
-    //.BRAM_PORTA_addr(AERAM_addr),
-    //.BRAM_PORTA_clk (AERAM_clk),
-    //.BRAM_PORTA_din (AERAM_din),
-    //.BRAM_PORTA_en  (AERAM_cs),
-    //.BRAM_PORTA_rst (AERAM_rst),
-    //.BRAM_PORTA_we  (AERAM_we),
-    //.BRAM_PORTA_dout(AERAM_dout),
-    .clk_48  ( ),
     .clk_50   ( soc_clk  ),
-    .clk_20   ( ),
     .clk_15   ( clk15),
     .CLK_IN1_D_clk_n(sys_clk_n),
     .CLK_IN1_D_clk_p(sys_clk_p),
@@ -851,7 +1035,46 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .probe_out2 ( vio_boot_mode_sel ),
     .probe_out3 ( vio_uart_sel  ),
     .probe_in0  ( SPI_EN_CONF   ),
-    .probe_in1  ( debug_axi     )
+    .probe_in1  ( debug_axi     ),
+    .M_AXI_HPM0_FPD_araddr  ( ps_m_axi_hpm0_araddr ),
+    .M_AXI_HPM0_FPD_arburst ( ps_m_axi_hpm0_arburst ),
+    .M_AXI_HPM0_FPD_arcache ( ps_m_axi_hpm0_arcache ),
+    .M_AXI_HPM0_FPD_arid    ( ps_m_axi_hpm0_arid ),
+    .M_AXI_HPM0_FPD_arlen   ( ps_m_axi_hpm0_arlen ),
+    .M_AXI_HPM0_FPD_arlock  ( ps_m_axi_hpm0_arlock ),
+    .M_AXI_HPM0_FPD_arprot  ( ps_m_axi_hpm0_arprot ),
+    .M_AXI_HPM0_FPD_arqos   ( ps_m_axi_hpm0_arqos ),
+    .M_AXI_HPM0_FPD_arready ( ps_m_axi_hpm0_arready ),
+    .M_AXI_HPM0_FPD_arsize  ( ps_m_axi_hpm0_arsize ),
+    .M_AXI_HPM0_FPD_aruser  ( ps_m_axi_hpm0_aruser ),
+    .M_AXI_HPM0_FPD_arvalid ( ps_m_axi_hpm0_arvalid ),
+    .M_AXI_HPM0_FPD_awaddr  ( ps_m_axi_hpm0_awaddr ),
+    .M_AXI_HPM0_FPD_awburst ( ps_m_axi_hpm0_awburst ),
+    .M_AXI_HPM0_FPD_awcache ( ps_m_axi_hpm0_awcache ),
+    .M_AXI_HPM0_FPD_awid    ( ps_m_axi_hpm0_awid ),
+    .M_AXI_HPM0_FPD_awlen   ( ps_m_axi_hpm0_awlen ),
+    .M_AXI_HPM0_FPD_awlock  ( ps_m_axi_hpm0_awlock ),
+    .M_AXI_HPM0_FPD_awprot  ( ps_m_axi_hpm0_awprot ),
+    .M_AXI_HPM0_FPD_awqos   ( ps_m_axi_hpm0_awqos ),
+    .M_AXI_HPM0_FPD_awready ( ps_m_axi_hpm0_awready ),
+    .M_AXI_HPM0_FPD_awsize  ( ps_m_axi_hpm0_awsize ),
+    .M_AXI_HPM0_FPD_awuser  ( ps_m_axi_hpm0_awuser ),
+    .M_AXI_HPM0_FPD_awvalid ( ps_m_axi_hpm0_awvalid ),
+    .M_AXI_HPM0_FPD_bid     ( ps_m_axi_hpm0_bid ),
+    .M_AXI_HPM0_FPD_bready  ( ps_m_axi_hpm0_bready ),
+    .M_AXI_HPM0_FPD_bresp   ( ps_m_axi_hpm0_bresp ),
+    .M_AXI_HPM0_FPD_bvalid  ( ps_m_axi_hpm0_bvalid ),
+    .M_AXI_HPM0_FPD_rdata   ( ps_m_axi_hpm0_rdata ),
+    .M_AXI_HPM0_FPD_rid     ( ps_m_axi_hpm0_rid ),
+    .M_AXI_HPM0_FPD_rlast   ( ps_m_axi_hpm0_rlast ),
+    .M_AXI_HPM0_FPD_rready  ( ps_m_axi_hpm0_rready ),
+    .M_AXI_HPM0_FPD_rresp   ( ps_m_axi_hpm0_rresp ),
+    .M_AXI_HPM0_FPD_rvalid  ( ps_m_axi_hpm0_rvalid ),
+    .M_AXI_HPM0_FPD_wdata   ( ps_m_axi_hpm0_wdata ),
+    .M_AXI_HPM0_FPD_wlast   ( ps_m_axi_hpm0_wlast ),
+    .M_AXI_HPM0_FPD_wready  ( ps_m_axi_hpm0_wready ),
+    .M_AXI_HPM0_FPD_wstrb   ( ps_m_axi_hpm0_wstrb ),
+    .M_AXI_HPM0_FPD_wvalid  ( ps_m_axi_hpm0_wvalid )
   );
 `else
   IBUFDS #(

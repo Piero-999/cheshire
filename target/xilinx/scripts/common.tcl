@@ -44,8 +44,8 @@ proc init_impl {xilinx_root argc argv} {
         return -code error
     }
     # Configure parallelism
-    set num_threads 4
-    set num_jobs 4
+    set num_threads 1
+    set num_jobs 1
     # Get arguments
     set board [lindex $argv 0]
     set proj [lindex $argv 1]
