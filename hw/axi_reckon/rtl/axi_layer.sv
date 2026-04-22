@@ -13,8 +13,8 @@ module axi_layer import cheshire_pkg::*; #
   input  logic clk_i,
   input  logic rst_ni,
   // use the canonical Cheshire packed AXI types on the module ports
-  input  axi_ext_slv_req_t  axi_ext_slv_req_s,
-  output axi_ext_slv_rsp_t  axi_ext_slv_rsp_s,
+  input  axi_ext_slv_req_t  [(Cfg.AxiExtNumSlv-1):0] axi_ext_slv_req_s,
+  output axi_ext_slv_rsp_t  [(Cfg.AxiExtNumSlv-1):0] axi_ext_slv_rsp_s,
 
   output logic [31:0] axi_reg_o [AxiRegsNout-1:0],
   input  logic [31:0] axi_reg_i [AxiRegsNin-1:0],
@@ -74,9 +74,14 @@ module axi_layer import cheshire_pkg::*; #
   axi_slv_req_t  axi_slv_rf_i;
   axi_slv_rsp_t  axi_slv_rf_o;
 
+  localparam int unsigned RF_REGION_BYTES = 1024;
+  localparam int unsigned RF_ADDR_SHIFT   = $clog2(Cfg.AxiDataWidth/8); // byte->beat index
+  localparam int unsigned RF_ADDR_WIDTH   = $clog2(RF_REGION_BYTES) - RF_ADDR_SHIFT;
+  typedef logic [RF_ADDR_WIDTH-1:0] rf_addr_t;
+
   // Generate flattened AXI-Lite ports/signals with sizes from CHESHIRE typedefs.
   // last five args are user types — pass axi_user_t for all channels
-`AXI_LITE_S(lite_rf, addr_t, axi_data_t, axi_strb_t)
+`AXI_LITE_S(lite_rf, rf_addr_t, axi_data_t, axi_strb_t)
 
   // small register arrays used by the AXI4 RF slave IP
   logic [31:0] in_reg  [0:31];
@@ -88,13 +93,9 @@ module axi_layer import cheshire_pkg::*; #
   genvar i;
   generate
     for (i = 0; i < 32; i = i + 1) begin : GEN_IN_REGS
-      if (i < AxiRegsNin) begin : GEN_IN_REGS_MAP
-        assign in_reg[i] = axi_reg_i[i];
-      end else begin : GEN_IN_REGS_ZERO
-        assign in_reg[i] = '0;
-      end
+      assign in_reg[i] = axi_reg_i[i];
     end
-    for (i = 0; i < AxiRegsNout; i = i + 1) begin : GEN_OUT_REGS
+    for (i = 0; i < 8; i = i + 1) begin : GEN_OUT_REGS
       assign axi_reg_o[i] = out_reg[i];
     end
   endgenerate
@@ -108,8 +109,8 @@ module axi_layer import cheshire_pkg::*; #
   generate
     if (Cfg.AxiExtNumSlv > 0) begin
       // connect first external slave to the RF adapter
-      assign axi_slv_rf_i = axi_ext_slv_req_s;
-      assign axi_ext_slv_rsp_s = axi_slv_rf_o;
+      assign axi_slv_rf_i = axi_ext_slv_req_s[0];
+      assign axi_ext_slv_rsp_s[0] = axi_slv_rf_o;
     end else begin
       // tie off if none present
       assign axi_slv_rf_i = '0;
@@ -119,45 +120,68 @@ module axi_layer import cheshire_pkg::*; #
   // --- map flattened RF-side signals to internal full-AXI signals (packed view) ---
   // pack/unpack between flattened lite signals and lite_req / lite_resp
 
-  // AW channel
-  assign s_axi_lite_rf_awaddr  = lite_req.aw.addr;
-  assign s_axi_lite_rf_awprot  = lite_req.aw.prot;
-  assign s_axi_lite_rf_awvalid = lite_req.aw_valid;
-  assign lite_resp.aw_ready    = s_axi_lite_rf_awready;
+wire [RF_ADDR_WIDTH-1:0] rf_awaddr = lite_req.aw.addr[RF_ADDR_SHIFT +: RF_ADDR_WIDTH];
+wire [RF_ADDR_WIDTH-1:0] rf_araddr = lite_req.ar.addr[RF_ADDR_SHIFT +: RF_ADDR_WIDTH];
 
-  // W channel
-  assign s_axi_lite_rf_wdata  = lite_req.w.data;
-  assign s_axi_lite_rf_wstrb  = lite_req.w.strb;
-  assign s_axi_lite_rf_wvalid = lite_req.w_valid;
-  assign lite_resp.w_ready    = s_axi_lite_rf_wready;
+// ---------------------------
+// Write Address Channel
+// ---------------------------
 
-  // B channel (master -> slave / slave -> master mapping)
-  assign s_axi_lite_rf_bready = lite_req.b_ready;
-  assign lite_resp.b.resp     = s_axi_lite_rf_bresp;
-  assign lite_resp.b_valid    = s_axi_lite_rf_bvalid;
+assign s_axi_lite_rf_awaddr  = rf_awaddr;
+assign s_axi_lite_rf_awprot  = lite_req.aw.prot;
+assign s_axi_lite_rf_awvalid = lite_req.aw_valid;
+assign lite_resp.aw_ready    = s_axi_lite_rf_awready;
 
-  // AR channel
-  assign s_axi_lite_rf_araddr  = lite_req.ar.addr;
-  assign s_axi_lite_rf_arprot  = lite_req.ar.prot;
-  assign s_axi_lite_rf_arvalid = lite_req.ar_valid;
-  assign lite_resp.ar_ready    = s_axi_lite_rf_arready;
+// ---------------------------
+// Write Data Channel
+// ---------------------------
 
-  // R channel (slave -> master)
-  assign s_axi_lite_rf_rready = lite_req.r_ready;
-  assign lite_resp.r.data     = s_axi_lite_rf_rdata;
-  assign lite_resp.r.resp     = s_axi_lite_rf_rresp;
-  assign lite_resp.r_valid    = s_axi_lite_rf_rvalid;
+assign s_axi_lite_rf_wdata   = lite_req.w.data;
+assign s_axi_lite_rf_wstrb   = lite_req.w.strb;
+assign s_axi_lite_rf_wvalid  = lite_req.w_valid;
+assign lite_resp.w_ready     = s_axi_lite_rf_wready;
+
+// ---------------------------
+// Write Response Channel
+// ---------------------------
+
+assign s_axi_lite_rf_bready  = lite_req.b_ready;
+
+assign lite_resp.b.resp      = s_axi_lite_rf_bresp;
+assign lite_resp.b_valid     = s_axi_lite_rf_bvalid;
+
+// ---------------------------
+// Read Address Channel
+// ---------------------------
+
+assign s_axi_lite_rf_araddr  = rf_araddr;
+assign s_axi_lite_rf_arprot  = lite_req.ar.prot;
+assign s_axi_lite_rf_arvalid = lite_req.ar_valid;
+assign lite_resp.ar_ready    = s_axi_lite_rf_arready;
+
+// ---------------------------
+// Read Data Channel
+// ---------------------------
+
+assign s_axi_lite_rf_rready  = lite_req.r_ready;
+
+assign lite_resp.r.data      = s_axi_lite_rf_rdata;
+assign lite_resp.r.resp      = s_axi_lite_rf_rresp;
+assign lite_resp.r_valid     = s_axi_lite_rf_rvalid;
 
   // Map RF packed slave <-> converter packed full AXI types
   // full_req is driven from the RF packed view; full_resp drives RF packed response
   assign full_req  = axi_slv_rf_i;
   assign axi_slv_rf_o = full_resp;
 
+  localparam axi_in_t AxiIn = gen_axi_in(Cfg);
+  localparam int unsigned AxiSlvIdWidth = Cfg.AxiMstIdWidth + $clog2(AxiIn.num_in);
+
   // Instantiate converter (full AXI -> AXI-Lite)
   axi_to_axi_lite #(
     .AxiAddrWidth    ( Cfg.AddrWidth     ),
     .AxiDataWidth    ( Cfg.AxiDataWidth  ),
-    .AxiIdWidth      ( Cfg.AxiMstIdWidth ),
+    .AxiIdWidth      (  AxiSlvIdWidth    ),
     .AxiUserWidth    ( Cfg.AxiUserWidth  ),
     .AxiMaxWriteTxns ( 4 ),
     .AxiMaxReadTxns  ( 4 ),
@@ -184,7 +208,7 @@ module axi_layer import cheshire_pkg::*; #
     .N1(N1),
     .N2(N2),
     .C_S_AXI_DATA_WIDTH(Cfg.AxiDataWidth),
-    .C_S_AXI_ADDR_WIDTH(Cfg.AddrWidth)
+    .C_S_AXI_ADDR_WIDTH(RF_ADDR_WIDTH)
   ) AXI4_RF_slave_lite_v1_0_S00_AXI_inst (
     .S_AXI_ACLK   (axi_aclk),
     .S_AXI_ARESETN(axi_aresetn),
@@ -243,4 +267,3 @@ module axi_layer import cheshire_pkg::*; #
   endgenerate
 
 endmodule
-

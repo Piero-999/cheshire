@@ -985,7 +985,7 @@ module vip_cheshire_soc import cheshire_pkg::*; #(
 
     $display("[SLINK] Waiting for EOC at 0x%h", AmRegs + cheshire_reg_pkg::CHESHIRE_SCRATCH_2_OFFSET);
     slink_poll_bit0(AmRegs + cheshire_reg_pkg::CHESHIRE_SCRATCH_2_OFFSET, exit_code, 800);
-    $display("[SLINK] EOC observed raw=0x%08h", exit_code);
+    $display("[SLINK] EOC observed raw=0x%08h at time: %0t", exit_code, $time);
     exit_code >>= 1;
     if (exit_code) $error("[SLINK] FAILED: return code %0d", exit_code);
     else $display("[SLINK] SUCCESS");
