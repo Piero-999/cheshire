@@ -187,6 +187,9 @@ module aer_decoder #(
   /*******************************/
   /********TICK GENERATOR*********/
   /*******************************/
+
+  // FSM control inputs mirrored as local wires.
+  wire NEW_EPOCH, NEW_BATCH, STOP, TEST;
   
   assign TIMING_ERROR = ~(SPI_TIMING ^ TIMING_ERROR_RDY);
   assign target_tick  = (curr_state == LABEL) ? SPI_LABEL_DELAY_sync : tick_aer_in_reg;
@@ -212,7 +215,6 @@ module aer_decoder #(
   /*******************************/
 
   /////INPUT SIGNALS
-  wire   NEW_EPOCH, NEW_BATCH, STOP, TEST;
   assign NEW_EPOCH = NEW_EPOCH_i;
   assign NEW_BATCH = NEW_BATCH_i;
   assign STOP = STOP_i;

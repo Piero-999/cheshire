@@ -127,6 +127,7 @@ module dram_wrapper_xilinx #(
 
   // Clock on which is clocked the DRAM AXI
   logic dram_axi_clk;
+  logic dram_clk_o;
   logic dram_rst_o;
 
   // Signals before resizing

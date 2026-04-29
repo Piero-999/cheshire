@@ -101,6 +101,14 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   logic       vio_reset, vio_boot_mode_sel, vio_uart_sel;
   logic [1:0] boot_mode, vio_boot_mode;
   logic       sys_rst;
+  // Explicit declarations avoid implicit-wire inference and use-before-declare warnings.
+  logic       sys_clk;
+  logic       soc_clk;
+  logic       clk15;
+  logic       dram_ref_clk;
+  logic       usb_clk;
+  logic       SPI_EN_CONF;
+  logic       rst_n;
 
   ///////////////////////
   //  Cheshire Config  //
@@ -186,6 +194,11 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   // Configure cheshire for FPGA mapping
   localparam cheshire_cfg_t FPGACfg = gen_cheshire_xilinx_cfg();
   `CHESHIRE_TYPEDEF_ALL(, FPGACfg)
+
+`ifdef USE_CFG_REGS
+  reg_req_t cfg_reg_req;
+  reg_rsp_t cfg_reg_rsp;
+`endif
 
   // Explicit localparams: Vivado 2020.2 cannot resolve struct member accesses
   // (e.g. FPGACfg.AddrWidth) directly inside typedef/signal dimension expressions.
@@ -993,8 +1006,6 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   //  Reset Sync  //
   //////////////////
 
-  logic rst_n;
-
   rstgen i_rstgen (
     .clk_i        ( soc_clk     ),
     .rst_ni       ( ~sys_rst    ),
@@ -1011,6 +1022,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign sys_rst = ~sys_resetn | vio_reset;
 `endif
   assign boot_mode = vio_boot_mode_sel ? vio_boot_mode : boot_mode_i;
+  assign usb_clk = soc_clk;
 
   assign uart_tx_o_cp2108 = vio_uart_sel ? uart_tx_o : '0;
   assign uart_tx_o_gpio   = vio_uart_sel ? '0 : uart_tx_o;
@@ -1110,7 +1122,7 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     assign vio_reset          = '0;
     assign vio_boot_mode      = '0;
     assign vio_boot_mode_sel  = '0;
-    assign vio_uart_out_sel   = '0;
+    assign vio_uart_sel       = '0;
   `endif
 `endif
 
