@@ -108,3 +108,39 @@ $(eval $(call chs_xilinx_util_rule,flash,$(CHS_XILINX_FLASH_IMG)))
 chs-xilinx-clean:
 	@echo "Cleaning Xilinx build files for board '$*'..."
 	rm -rf $(CHS_XILINX_DIR)/build/$*/
+
+# Split / Out-Of-Context synthesis (ReckOn).
+# Splits the full-top synthesis (which OOMs on the 31 GB VM) in two:
+#   1) reckon_axi_top synthesized OOC -> reckon_axi_top.dcp
+#   2) top with ReckOn as a black-box (impl_sys_ooc.tcl)
+# Does not affect the standard flow: `make chs-xilinx-zcu102` is unchanged.
+
+CHS_RECKON_OOC_DIR := $(CHS_XILINX_DIR)/build/reckon_ooc
+CHS_RECKON_OOC_DCP := $(CHS_RECKON_OOC_DIR)/reckon_axi_top.dcp
+
+# Stage 1: ReckOn OOC checkpoint
+$(CHS_RECKON_OOC_DCP): $(CHS_XILINX_DIR)/scripts/synth_reckon_ooc.tcl $(CHS_HW_ALL)
+	@mkdir -p $(CHS_RECKON_OOC_DIR)
+	cd $(CHS_ROOT) && $(VIVADO) -mode batch \
+		-source  $(CHS_XILINX_DIR)/scripts/synth_reckon_ooc.tcl \
+		-log     $(CHS_RECKON_OOC_DIR)/vivado.log \
+		-journal $(CHS_RECKON_OOC_DIR)/vivado.jou
+
+CHS_PHONY += chs-xilinx-reckon-ooc
+chs-xilinx-reckon-ooc: $(CHS_RECKON_OOC_DCP)
+
+# Stage 2: split top (ReckOn black-box), zcu102 only.
+# Same invocation scheme as the standard flow, but with impl_sys_ooc.tcl.
+CHS_PHONY += chs-xilinx-zcu102-split
+chs-xilinx-zcu102-split: \
+		$(CHS_XILINX_DIR)/scripts/impl_sys_ooc.tcl \
+		$(CHS_XILINX_DIR)/scripts/add_sources.zcu102.tcl \
+		$(CHS_RECKON_OOC_DCP) \
+		$(CHS_XILINX_IPS_zcu102:%=$(CHS_XILINX_DIR)/build/zcu102.%/out.xci) \
+		$(CHS_HW_ALL)
+	@mkdir -p $(CHS_XILINX_DIR)/build/zcu102.cheshire/
+	@rm -f $(CHS_XILINX_DIR)/build/cheshire.zcu102*.log $(CHS_XILINX_DIR)/build/cheshire.zcu102*.jou
+	cd $(CHS_XILINX_DIR)/build/zcu102.cheshire/ && $(VIVADO) -mode batch \
+		-log ../cheshire.zcu102.log -jou ../cheshire.zcu102.jou \
+		-source $(CHS_XILINX_DIR)/scripts/impl_sys_ooc.tcl \
+		-tclargs zcu102 cheshire $(CHS_XILINX_IPS_zcu102:%=$(CHS_XILINX_DIR)/build/zcu102.%/out.xci)

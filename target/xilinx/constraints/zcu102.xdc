@@ -54,9 +54,20 @@ create_clock -period 3.333 -name sys_clk [get_ports sys_clk_p]
 # set_property BOARD_PART_PIN default_100mhz_clk_p [get_ports sys_clk_p]
 # set_property -dict {PACKAGE_PIN G21 IOSTANDARD LVDS_25} [get_ports sys_clk_p]
 
-# Generate the SoC Clock
-set soc_clk [get_clocks -of_objects [get_pins i_clkwiz/clk_50]]
-set_property CLOCK_DEDICATED_ROUTE BACKBONE [get_nets soc_clk]
+# Generate the SoC Clock (from MPSoC BD clock wizard)
+set soc_clk_net [get_nets -quiet -of_objects [get_pins -quiet MPSoC_controller_0/clk_50]]
+if {[llength $soc_clk_net]} {
+	set_property CLOCK_DEDICATED_ROUTE BACKBONE $soc_clk_net
+}
+
+# CDC: the MIG DDR4 UI clock and the SoC fabric clock are asynchronous. The axi_cdc
+# already crosses them safely (gray-code FIFO + synchronizers), so declare the domains
+# asynchronous; otherwise the crossing is timed as synchronous and fails setup/hold.
+# Vivado XDC does not support 'if' (CRITICAL WARNING 20-1307 skips the block), so no
+# guard: get_clocks -quiet inline is empty during synth and applies during impl.
+set_clock_groups -asynchronous -name async_soc_ddr \
+	-group [get_clocks -quiet {clk_50_* clk_15_*}] \
+	-group [get_clocks -quiet -include_generated_clocks {mmcm_clkout*}]
 
 set_property BOARD_PART_PIN user_si570_sysclk_n [get_ports sys_clk_n]
 set_property BOARD_PART_PIN user_si570_sysclk_p [get_ports sys_clk_p]

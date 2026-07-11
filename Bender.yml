@@ -70,6 +70,7 @@ sources:
       - hw/axi_reckon/rtl/aer_decoder.v
       - hw/axi_reckon/rtl/axi_layer.sv
       - hw/axi_reckon/rtl/axi_rf.sv
+      - hw/axi_reckon/rtl/stream_ctrl_fsm2.sv
       - hw/axi_reckon/rtl/reckon_axi_top.v
       - hw/axi_reckon/rtl/reckon/lfsr_neur_stochround.v
       - hw/axi_reckon/rtl/reckon/lfsr_noise_neur.v
@@ -81,3 +82,10 @@ sources:
       - hw/axi_reckon/rtl/reckon/srnn.v
     defines:
         ADDR_WIDTH: 16
+        # PS-PL + DRAM + I/O enabled for the full top cheshire_top_xilinx
+        USE_MPSOC: ~
+        USE_DDR: ~
+        USE_DDR4: ~
+        USE_RESET: ~
+        USE_NUM_LED: 1
+        USE_JTAG: ~

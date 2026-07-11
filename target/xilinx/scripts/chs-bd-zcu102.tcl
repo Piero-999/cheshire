@@ -5,13 +5,12 @@ set_property -name "board_part" -value "xilinx.com:zcu102:part0:3.4" -objects [c
 create_bd_design $design_name
 
 ## MPSoC
-#Vivado 2024.2: zynq_ultra_ps_e:3.5
-#Vivado 2022.x: zynq_ultra_ps_e:3.4
-#Vivado 2020.2: zynq_ultra_ps_e:3.3
+#Vivado 2024.2
 create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps_e_0
 
 set_property -dict [list \
   CONFIG.PSU__DDRC__ENABLE {0} \
+  CONFIG.PSU__MAXIGP0__DATA_WIDTH {128} \
   CONFIG.PSU__UART0__PERIPHERAL__ENABLE {1} \
   CONFIG.PSU__USE__M_AXI_GP0 {1} \
   CONFIG.PSU__USE__M_AXI_GP2 {0} \
@@ -21,16 +20,14 @@ set_property -dict [list \
 create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0
 
 
+# clk_wiz input is the user Si570 sysclk (300 MHz), matching zcu102.xdc and the DDR4 IP.
+# MMCM: VCO = 300*4/1 = 1200 MHz (range 800-1600); clk_50 = 1200/24, clk_15 = 1200/80.
 set_property -dict [list \
   CONFIG.AUTO_PRIMITIVE {MMCM} \
-  CONFIG.CLKIN1_JITTER_PS {80.0} \
+  CONFIG.CLKIN1_JITTER_PS {33.330} \
   CONFIG.CLKOUT1_DRIVES {BUFGCE} \
-  CONFIG.CLKOUT1_JITTER {196.543} \
-  CONFIG.CLKOUT1_PHASE_ERROR {222.305} \
   CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {50.000} \
   CONFIG.CLKOUT2_DRIVES {BUFGCE} \
-  CONFIG.CLKOUT2_JITTER {239.833} \
-  CONFIG.CLKOUT2_PHASE_ERROR {222.305} \
   CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {15.000} \
   CONFIG.CLKOUT2_USED {true} \
   CONFIG.CLKOUT3_DRIVES {BUFGCE} \
@@ -40,17 +37,17 @@ set_property -dict [list \
   CONFIG.CLKOUT7_DRIVES {BUFGCE} \
   CONFIG.FEEDBACK_SOURCE {FDBK_AUTO} \
   CONFIG.MMCM_BANDWIDTH {OPTIMIZED} \
-  CONFIG.MMCM_CLKFBOUT_MULT_F {48.000} \
-  CONFIG.MMCM_CLKIN1_PERIOD {8.000} \
+  CONFIG.MMCM_CLKFBOUT_MULT_F {4.000} \
+  CONFIG.MMCM_CLKIN1_PERIOD {3.333} \
   CONFIG.MMCM_CLKOUT0_DIVIDE_F {24.000} \
   CONFIG.MMCM_CLKOUT1_DIVIDE {80} \
   CONFIG.MMCM_COMPENSATION {AUTO} \
-  CONFIG.MMCM_DIVCLK_DIVIDE {5} \
+  CONFIG.MMCM_DIVCLK_DIVIDE {1} \
   CONFIG.NUM_OUT_CLKS {2} \
   CONFIG.OPTIMIZE_CLOCKING_STRUCTURE_EN {true} \
   CONFIG.PRIMITIVE {Auto} \
-  CONFIG.PRIM_IN_FREQ {125.000} \
-  CONFIG.PRIM_SOURCE {Differential_clock_capable_pin} \
+  CONFIG.PRIM_IN_FREQ {300.000} \
+  CONFIG.PRIM_SOURCE {No_buffer} \
   CONFIG.SECONDARY_SOURCE {Single_ended_clock_capable_pin} \
   CONFIG.USE_DYN_PHASE_SHIFT {false} \
   CONFIG.USE_LOCKED {false} \
@@ -62,9 +59,9 @@ set_property -dict [list \
 ] [get_bd_cells clk_wiz_0]
 
 
-create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_IN1_D
-set_property CONFIG.FREQ_HZ 125000000 [get_bd_intf_ports /CLK_IN1_D]
-connect_bd_intf_net [get_bd_intf_pins clk_wiz_0/CLK_IN1_D] [get_bd_intf_ports CLK_IN1_D]
+create_bd_port -dir I -type clk sys_clk
+set_property CONFIG.FREQ_HZ 300000000 [get_bd_ports /sys_clk]
+connect_bd_net [get_bd_pins clk_wiz_0/clk_in1] [get_bd_ports sys_clk]
 
 
 create_bd_port -dir O -type clk clk_50
@@ -73,6 +70,10 @@ connect_bd_net [get_bd_pins /clk_wiz_0/clk_50] [get_bd_ports clk_50]
 
 create_bd_port -dir O -type clk clk_15
 connect_bd_net [get_bd_pins /clk_wiz_0/clk_15] [get_bd_ports clk_15]
+
+# Export PS-provided reset to top-level RTL.
+create_bd_port -dir O -type rst pl_resetn0
+connect_bd_net [get_bd_pins /zynq_ultra_ps_e_0/pl_resetn0] [get_bd_ports pl_resetn0]
 
 
 # PS->PL AXI master clock domain aligned with Cheshire SoC clock. 
@@ -88,6 +89,9 @@ set_property -dict [list \
 ] [get_bd_intf_ports /M_AXI_HPM0_FPD]
 set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_HPM0_FPD} [get_bd_ports /clk_50]
 connect_bd_intf_net [get_bd_intf_pins /zynq_ultra_ps_e_0/M_AXI_HPM0_FPD] [get_bd_intf_ports /M_AXI_HPM0_FPD]
+# Keep Vivado BD validation quiet: the exported master port still creates an
+# address segment, so assign it explicitly to the PS Data address space.
+assign_bd_address -target_address_space /zynq_ultra_ps_e_0/Data [get_bd_addr_segs /M_AXI_HPM0_FPD/Reg] -force
 
 # VIO
 

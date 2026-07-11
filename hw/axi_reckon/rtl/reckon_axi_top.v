@@ -37,7 +37,15 @@ module reckon_axi_top #(
     input wire [11:0] batch_size_i,
     input wire [11:0] n_samples_i,
      input wire [11:0] n_epochs_i,
-    input wire [2:0 ] do_eprop_i
+    input wire [2:0 ] do_eprop_i,
+
+    // Streaming DDR4->BRAM: control lives in stream_ctrl_fsm2 (instanced below).
+    // The top only forwards the soc clock/reset and the SW bits.
+    input  wire        soc_clk_i,        // CVA6 / AXI register file domain
+    input  wire        soc_rst_ni,
+    input  wire [1:0]  fill_tgl_i,       // out_reg[7][2:1]: one toggle per half
+    input  wire        exhausted_i,      // out_reg[7][3]: level, DDR4 data is over
+    output wire [31:0] stream_status_o   // in_reg[3]
 
 );
 
@@ -65,30 +73,31 @@ wire OUT_REQ, OUT_ACK;
 wire BATCH_DONE, EPOCH_DONE;
 
 assign AXI_BRAM_ADDR = BRAM_PORTA_addr[ADDR_WIDTH+1:2];
+assign BATCH_DONE_wire = BATCH_DONE;
+assign EPOCH_DONE_wire = EPOCH_DONE;
 
 wire [7:0] OUT_DATA, AERIN_ADDR;
 
-(* ASYNC_REG = "TRUE" *) reg STOP_reg, TEST_reg, NEW_BATCH_reg, NEW_EPOCH_reg;
-(* ASYNC_REG = "TRUE" *) reg STOP_sync, TEST_sync, NEW_BATCH_sync, NEW_EPOCH_sync, STOP_sync2, NEW_BATCH_sync2, NEW_EPOCH_sync2;
-(* ASYNC_REG = "TRUE" *) reg STOP_strb, NEW_BATCH_strb, NEW_EPOCH_strb;
+// NEW_BATCH is granted only by stream_ctrl_fsm2, the single gate protecting entry
+// into a half; a manual strobe would bypass it, so reckon_ctrl_i_1 (out_reg[5]) is
+// reserved and ignored.
+(* ASYNC_REG = "TRUE" *) reg STOP_reg, TEST_reg, NEW_EPOCH_reg;
+(* ASYNC_REG = "TRUE" *) reg STOP_sync, TEST_sync, NEW_EPOCH_sync, STOP_sync2, NEW_EPOCH_sync2;
+(* ASYNC_REG = "TRUE" *) reg STOP_strb, NEW_EPOCH_strb;
 (* ASYNC_REG = "TRUE" *)
 always @(posedge clk_i) begin
   STOP_reg        <= reckon_ctrl_i_3[0];
   TEST_reg        <= reckon_ctrl_i_2[0];
-  NEW_BATCH_reg   <= reckon_ctrl_i_1[0];
   NEW_EPOCH_reg   <= reckon_ctrl_i_0[0];
 
   STOP_sync       <= STOP_reg;
-  NEW_BATCH_sync  <= NEW_BATCH_reg;
   NEW_EPOCH_sync  <= NEW_EPOCH_reg;
   TEST_sync       <= TEST_reg;
 
   STOP_sync2      <= STOP_sync;
-  NEW_BATCH_sync2 <= NEW_BATCH_sync;
   NEW_EPOCH_sync2 <= NEW_EPOCH_sync;
 
   STOP_strb       <= ~STOP_sync2      & STOP_sync;
-  NEW_BATCH_strb  <= ~NEW_BATCH_sync2 & NEW_BATCH_sync;
   NEW_EPOCH_strb  <= ~NEW_EPOCH_sync2 & NEW_EPOCH_sync;
 end
 
@@ -125,6 +134,35 @@ assign DO_EPROP   = DO_EPROP_sync2;
 assign N_SAMPLES  = N_SAMPLES_sync2;
 assign BATCH_SIZE = BATCH_SIZE_sync2;
 assign N_EPOCHS   = N_EPOCHS_sync2;
+
+// Streaming DDR4->BRAM. The whole handshake state has a single owner,
+// stream_ctrl_fsm2: it sees RAM_ADDR, CS, BATCH_DONE and EPOCH_DONE native in clk15,
+// takes two toggles and a level from the CVA6, and returns a status word that crosses
+// the CDC once. With aer_decoder in HALF_BATCH the read gate is unused (stream_stall_i
+// tied to 0).
+
+wire new_batch_fsm;
+wire data_exhausted_gated;
+
+stream_ctrl_fsm2 #(
+    .ADDR_WIDTH(ADDR_WIDTH)
+) stream_ctrl_fsm_0 (
+    // CVA6 side (soc_clk)
+    .soc_clk_i   (soc_clk_i),
+    .soc_rst_ni  (soc_rst_ni),
+    .fill_tgl_i  (fill_tgl_i),
+    .exhausted_i (exhausted_i),
+    .status_o    (stream_status_o),
+    // ReckOn side (clk15): no CDC, native signals
+    .acc_clk_i        (clk_i),
+    .acc_rst_ni       (~rst_i),
+    .batch_done_i     (BATCH_DONE_wire),
+    .epoch_done_i     (EPOCH_DONE_wire),
+    .cs_i             (CS),
+    .ram_addr_i       (RAM_ADDR),
+    .new_batch_o      (new_batch_fsm),
+    .data_exhausted_o (data_exhausted_gated)
+);
 
 
 reckon #(
@@ -176,7 +214,8 @@ reckon #(
 
 
 aer_decoder #(
-    .ADDR_WIDTH(ADDR_WIDTH)
+    .ADDR_WIDTH(ADDR_WIDTH),
+    .HALF_BATCH(1)        // one batch = one BRAM half; halves alternate at END_B
 ) aer_decoder_0 (
 
     .CLK(clk_i),
@@ -215,13 +254,18 @@ aer_decoder #(
 
     .TEST_i(TEST_sync),
     .STOP_i(STOP_strb),
-    .NEW_BATCH_i(NEW_BATCH_strb),
+    .NEW_BATCH_i(new_batch_fsm),        // only the FSM releases the exit from END_B
     .NEW_EPOCH_i(NEW_EPOCH_strb),
     .BATCH_DONE(BATCH_DONE),
     .EPOCH_DONE(EPOCH_DONE),
 
 
-    .infer_count_o(infer_count_o)
+    .infer_count_o(infer_count_o),
+
+    // Streaming DDR4->BRAM, driven by stream_ctrl_fsm2 (same clk15 domain)
+    .ram_addr_half_o(),                 // the FSM publishes the status, not needed here
+    .data_exhausted_i(data_exhausted_gated),
+    .stream_stall_i(1'b0)               // read gate unused with HALF_BATCH
 );
 
 //BRAM2_we_inst #(

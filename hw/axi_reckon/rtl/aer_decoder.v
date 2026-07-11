@@ -1,5 +1,9 @@
 module aer_decoder #(
-  parameter ADDR_WIDTH = 13
+  parameter ADDR_WIDTH = 13,
+  // HALF_BATCH = 0: a batch spans the whole BRAM (default, original behaviour).
+  // HALF_BATCH = 1: a batch spans one half; at END_B RAM_ADDR restarts from the
+  //   base of the next half, so ReckOn enters a half only at END_B (a handshake).
+  parameter HALF_BATCH = 0
 )(
 
   input wire CLK,
@@ -40,7 +44,12 @@ module aer_decoder #(
   input  wire [31:0]            DIN,
   output wire [ADDR_WIDTH-1:0]  RAM_ADDR,
 
-  output wire [11:0] infer_count_o
+  output wire [11:0] infer_count_o,
+
+  // Streaming DDR4->BRAM, driven by stream_ctrl_fsm (same clock domain)
+  output wire ram_addr_half_o,     // MSB of RAM_ADDR: 0 = lower half, 1 = upper half
+  input  wire data_exhausted_i,    // data over and no half granted -> at END_B go to END_E
+  input  wire stream_stall_i       // freeze BRAM reads: the requested half is not ready
 );
 
   reg [11:0] data_aer_in_reg, tick_aer_in_reg;
@@ -154,6 +163,9 @@ module aer_decoder #(
   assign BATCH_DONE           = BATCH_DONE_reg;
   assign cnt_epochs           = cnt_epochs_reg;
 
+  // MSB of RAM_ADDR: which BRAM half ReckOn is reading
+  assign ram_addr_half_o      = RAM_ADDR[ADDR_WIDTH-1];
+
   // reg NEW_EPOCH_sync, STOP_sync, NEW_BATCH_sync;
   // reg NEW_EPOCH_sync2, STOP_sync2, NEW_BATCH_sync2;
   reg tick_sync1, tick_sync2;
@@ -243,8 +255,14 @@ module aer_decoder #(
       SPIKE:   next_state <= AERIN_ACK ? READM : SPIKE;
       LABEL:   next_state <= (TEST || target_enable) ? READM : LABEL;
       END_S:   next_state <= sample_end                                ? (cnt_sample_batch == BATCH_SIZE ? END_B  : READM) : END_S;
-      END_B:   next_state <= (cnt_sample_epoch == N_SAMPLES)  ? END_E                      : (NEW_BATCH ? READM : END_B);
-      END_E:   next_state <= (cnt_epochs_reg   == epochs_target)            ? (STOP ? IDLE : END_E) : (NEW_EPOCH ? READM : END_E);
+      END_B:   next_state <= (cnt_sample_epoch == N_SAMPLES)  ? END_E
+                           : (data_exhausted_i                ? END_E   // DDR4 data over -> stop
+                           : (NEW_BATCH                       ? READM : END_B));
+      // STOP is honoured unconditionally: cnt_epochs_reg is already 1 on entry to
+      // END_E, so with N_EPOCHS=0 the epochs_target test would never fire.
+      END_E:   next_state <= STOP ? IDLE
+                           : ((cnt_epochs_reg == epochs_target) ? END_E
+                           : (NEW_EPOCH ? READM : END_E));
       default: next_state <= IDLE;
     endcase
   end
@@ -524,10 +542,12 @@ module aer_decoder #(
   /*******MEMORY INTERFACE********/
   /*******************************/
 
-  always @(mem_c_state, READ, RST_sync) begin
+  always @(mem_c_state, READ, RST_sync, stream_stall_i) begin
     case (mem_c_state)
       MEM_IDLE: begin
-        mem_n_state <=  READ ? MEM_READ1 : MEM_IDLE;
+        // stream_stall_i freezes the read before it touches a BRAM half not yet
+        // filled by the CVA6; the main FSM stays in READM until the half is granted.
+        mem_n_state <=  (READ && !stream_stall_i) ? MEM_READ1 : MEM_IDLE;
       end
       MEM_READ1: begin
         mem_n_state <=  MEM_READ2;
@@ -566,9 +586,26 @@ module aer_decoder #(
     endcase
   end
 
+  // Half the next batch restarts from. With HALF_BATCH=0 it stays 0 and the logic
+  // below reduces to the original behaviour (reset base = 0).
+  reg  half_sel;
+  wire enter_end_b = (curr_state != END_B) && (next_state == END_B);
+
   always @(posedge CLK) begin
-    if ( (curr_state == IDLE) || (curr_state == END_E) || (curr_state == END_B) ) RAM_ADDR_reg <= {ADDR_WIDTH{1'b0}};
-    else if (ADD_REG_EN)                                                          RAM_ADDR_reg <= RAM_ADDR + {{ADDR_WIDTH-2{1'b0}}, 1'd1};
+    if      (!HALF_BATCH)                                    half_sel <= 1'b0;
+    else if ((curr_state == IDLE) || (curr_state == END_E))  half_sel <= 1'b0;
+    else if (enter_end_b)                                    half_sel <= ~half_sel;
+  end
+
+  // half_sel toggles on entry into END_B; RAM_ADDR is reloaded the cycle after (its
+  // condition is curr_state == END_B), so it already reads the new value. No read
+  // happens in END_B (READ = 0), so the ordering is safe.
+  wire [ADDR_WIDTH-1:0] ram_addr_base = {half_sel, {ADDR_WIDTH-1{1'b0}}};
+
+  always @(posedge CLK) begin
+    if      ( (curr_state == IDLE) || (curr_state == END_E) ) RAM_ADDR_reg <= {ADDR_WIDTH{1'b0}};
+    else if (   curr_state == END_B )                         RAM_ADDR_reg <= ram_addr_base;
+    else if (ADD_REG_EN)                                      RAM_ADDR_reg <= RAM_ADDR + {{ADDR_WIDTH-2{1'b0}}, 1'd1};
   end
 
   /*******************************/

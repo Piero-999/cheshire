@@ -10,6 +10,7 @@
 
 `include "cheshire/typedef.svh"
 `include "phy_definitions.svh"
+`define USE_MPSOC
 
 // TODO: Expose more IO: unused SPI CS, Serial Link, etc.
 
@@ -109,6 +110,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   logic       usb_clk;
   logic       SPI_EN_CONF;
   logic       rst_n;
+
+  assign dram_ref_clk = sys_clk;
 
   ///////////////////////
   //  Cheshire Config  //
@@ -240,6 +243,12 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   `AXI_TYPEDEF_ALL_CT(ps_axi_dw, ps_axi_dw_req_t, ps_axi_dw_rsp_t, \
       ps_axi_addr_t, ps_axi_id_t, ps_axi_dw_data_t, ps_axi_dw_strb_t, ps_axi_user_t)
 
+  // Intermediate PS AXI type: reduced ID (CfgAxiMstIdWidth) still at PS data width.
+  // The iw_converter reduces the ID before the dw_converter (see below).
+  typedef logic [CfgAxiMstIdWidth-1:0]     ps_axi_iw_id_t;
+  `AXI_TYPEDEF_ALL_CT(ps_axi_iw, ps_axi_iw_req_t, ps_axi_iw_rsp_t, \
+      ps_axi_addr_t, ps_axi_iw_id_t, ps_axi_data_t, ps_axi_strb_t, ps_axi_user_t)
+
   // Flattened PS AXI interface from block design wrapper.
   logic [PsAxiIdWidth-1:0]     ps_m_axi_hpm0_awid;
   logic [PsAxiAddrWidth-1:0]   ps_m_axi_hpm0_awaddr;
@@ -287,8 +296,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
 
   ps_axi_req_t                 ps_axi_req;
   ps_axi_rsp_t                 ps_axi_rsp;
-  ps_axi_dw_req_t              ps_axi_dw_req;
-  ps_axi_dw_rsp_t              ps_axi_dw_rsp;
+  ps_axi_iw_req_t              ps_axi_iw_req;
+  ps_axi_iw_rsp_t              ps_axi_iw_rsp;
   axi_mst_req_t                ps_axi_mst_req;
   axi_mst_rsp_t                ps_axi_mst_rsp;
 `endif
@@ -656,55 +665,60 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign ps_m_axi_hpm0_rlast   = ps_axi_rsp.r.last;
   assign ps_m_axi_hpm0_rvalid  = ps_axi_rsp.r_valid;
 
-  axi_dw_converter #(
-    .AxiMaxReads          ( 8 ),
-    .AxiSlvPortDataWidth  ( PsAxiDataWidth ),
-    .AxiMstPortDataWidth  ( CfgAxiDataWidth ),
-    .AxiAddrWidth         ( CfgAddrWidth ),
-    .AxiIdWidth           ( PsAxiIdWidth ),
-    // Common AW, AR, B
-    .aw_chan_t            ( ps_axi_aw_chan_t ),
-    .b_chan_t             ( ps_axi_b_chan_t  ),
-    .ar_chan_t            ( ps_axi_ar_chan_t ),
-    // Master-side (64-bit) W, R
-    .mst_w_chan_t         ( ps_axi_dw_w_chan_t ),
-    .mst_r_chan_t         ( ps_axi_dw_r_chan_t ),
-    .axi_mst_req_t        ( ps_axi_dw_req_t ),
-    .axi_mst_resp_t       ( ps_axi_dw_rsp_t ),
-    // Slave-side (128-bit) W, R
-    .slv_w_chan_t         ( ps_axi_w_chan_t ),
-    .slv_r_chan_t         ( ps_axi_r_chan_t ),
-    .axi_slv_req_t        ( ps_axi_req_t ),
-    .axi_slv_resp_t       ( ps_axi_rsp_t )
-  ) i_ps_axi_dw_converter (
-    .clk_i      ( soc_clk ),
-    .rst_ni     ( rst_n ),
-    .slv_req_i  ( ps_axi_req ),
-    .slv_resp_o ( ps_axi_rsp ),
-    .mst_req_o  ( ps_axi_dw_req ),
-    .mst_resp_i ( ps_axi_dw_rsp )
-  );
-
+  // 1) axi_iw_converter: id16 -> CfgAxiMstIdWidth, at PS data width (128b).
   axi_iw_converter #(
     .AxiAddrWidth           ( CfgAddrWidth ),
-    .AxiDataWidth           ( CfgAxiDataWidth ),
+    .AxiDataWidth           ( PsAxiDataWidth ),
     .AxiUserWidth           ( CfgAxiUserWidth ),
     .AxiSlvPortIdWidth      ( PsAxiIdWidth ),
-    .AxiSlvPortMaxUniqIds   ( 16 ),
+    // 4 (not 16) forces axi_id_remap instead of axi_id_serialize and avoids the
+    // 2^16 demux blow-up (AxiMstPortIdWidth = CfgAxiMstIdWidth = 2, so 4 = 2**2).
+    .AxiSlvPortMaxUniqIds   ( 4 ),
     .AxiSlvPortMaxTxnsPerId ( 8 ),
     .AxiSlvPortMaxTxns      ( 16 ),
     .AxiMstPortIdWidth      ( CfgAxiMstIdWidth ),
     .AxiMstPortMaxUniqIds   ( 2 ** CfgAxiMstIdWidth ),
     .AxiMstPortMaxTxnsPerId ( 8 ),
-    .slv_req_t              ( ps_axi_dw_req_t ),
-    .slv_resp_t             ( ps_axi_dw_rsp_t ),
-    .mst_req_t              ( axi_mst_req_t ),
-    .mst_resp_t             ( axi_mst_rsp_t )
+    .slv_req_t              ( ps_axi_req_t ),
+    .slv_resp_t             ( ps_axi_rsp_t ),
+    .mst_req_t              ( ps_axi_iw_req_t ),
+    .mst_resp_t             ( ps_axi_iw_rsp_t )
   ) i_ps_axi_iw_converter (
     .clk_i      ( soc_clk ),
     .rst_ni     ( rst_n ),
-    .slv_req_i  ( ps_axi_dw_req ),
-    .slv_resp_o ( ps_axi_dw_rsp ),
+    .slv_req_i  ( ps_axi_req ),
+    .slv_resp_o ( ps_axi_rsp ),
+    .mst_req_o  ( ps_axi_iw_req ),
+    .mst_resp_i ( ps_axi_iw_rsp )
+  );
+
+  // 2) axi_dw_converter: 128b -> 64b, already at reduced ID (CfgAxiMstIdWidth),
+  //    so its internal demux has 2^CfgAxiMstIdWidth counters, not 2^16.
+  axi_dw_converter #(
+    .AxiMaxReads          ( 8 ),
+    .AxiSlvPortDataWidth  ( PsAxiDataWidth ),
+    .AxiMstPortDataWidth  ( CfgAxiDataWidth ),
+    .AxiAddrWidth         ( CfgAddrWidth ),
+    .AxiIdWidth           ( CfgAxiMstIdWidth ),
+    // Common AW, AR, B (at reduced ID)
+    .aw_chan_t            ( ps_axi_iw_aw_chan_t ),
+    .b_chan_t             ( ps_axi_iw_b_chan_t  ),
+    .ar_chan_t            ( ps_axi_iw_ar_chan_t ),
+    // Master-side (64-bit) W, R
+    .mst_w_chan_t         ( axi_mst_w_chan_t ),
+    .mst_r_chan_t         ( axi_mst_r_chan_t ),
+    .axi_mst_req_t        ( axi_mst_req_t ),
+    .axi_mst_resp_t       ( axi_mst_rsp_t ),
+    // Slave-side (128-bit) W, R
+    .slv_w_chan_t         ( ps_axi_iw_w_chan_t ),
+    .slv_r_chan_t         ( ps_axi_iw_r_chan_t ),
+    .axi_slv_req_t        ( ps_axi_iw_req_t ),
+    .axi_slv_resp_t       ( ps_axi_iw_rsp_t )
+  ) i_ps_axi_dw_converter (
+    .clk_i      ( soc_clk ),
+    .rst_ni     ( rst_n ),
+    .slv_req_i  ( ps_axi_iw_req ),
+    .slv_resp_o ( ps_axi_iw_rsp ),
     .mst_req_o  ( ps_axi_mst_req ),
     .mst_resp_i ( ps_axi_mst_rsp )
   );
@@ -843,16 +857,22 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign debug_axi        = |axi_do_eprop;
   assign led_o[0]         = debug_axi;
 
+  // Streaming DDR4->BRAM: only the register wiring stays here. Every CDC, flag and
+  // handshake lives inside stream_ctrl_fsm2 (instanced in reckon_axi_top).
+  //   out_reg[7]: [0] STOP, [1] fill_tgl[0], [2] fill_tgl[1], [3] exhausted
+  //   out_reg[5]: reserved (manual NEW_BATCH would bypass the FSM gate)
+  wire [1:0]  fill_tgl  = axi_reg_o[7][2:1];
+  wire        exhausted = axi_reg_o[7][3];
+  logic [31:0] stream_status;
+
   assign axi_reg_i[0]   = {20'h0, infer_count_12b};
-
-
   assign axi_reg_i[1]   = reckon_ctrl_o[0];
   assign axi_reg_i[2]   = reckon_ctrl_o[1];
-  assign axi_reg_i[3]   = 32'hDEADBEEF;
+  assign axi_reg_i[3]   = stream_status;    // in_reg[3], see stream_ctrl_fsm2
 
-  reckon_axi_top #(
-    .ADDR_WIDTH(16)
-  ) reckon_axi_top_0 (
+  // No ADDR_WIDTH override: 16 is already the default and the OOC black-box exposes
+  // no parameters (an override would raise [Synth 8-7136]).
+  reckon_axi_top reckon_axi_top_0 (
     .clk_i (clk15),
     .rst_i (~rst_n),
     .SPI_EN_CONF(SPI_EN_CONF),
@@ -876,7 +896,15 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .infer_count_o(infer_count_12b),
     .batch_size_i(axi_batch_size[11:0]),
     .n_samples_i(axi_n_samples[11:0]),
-    .do_eprop_i(axi_do_eprop[2:0])
+    .n_epochs_i(axi_n_epochs[11:0]),
+    .do_eprop_i(axi_do_eprop[2:0]),
+    // Streaming DDR4->BRAM: the FSM lives in reckon_axi_top and crosses the CDC on
+    // its own; only the soc clock and the SW bits pass through here.
+    .soc_clk_i(soc_clk),
+    .soc_rst_ni(rst_n),
+    .fill_tgl_i(fill_tgl),
+    .exhausted_i(exhausted),
+    .stream_status_o(stream_status)
   );
 
 
@@ -891,8 +919,8 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   ) axi_layer_0 (
     .clk_i             ( soc_clk ),
     .rst_ni            ( rst_n ),
-    .axi_ext_slv_req_s ( axi_slv_i),
-    .axi_ext_slv_rsp_s ( axi_slv_o),
+    .axi_ext_slv_req_s ( axi_slv_i[0]),
+    .axi_ext_slv_rsp_s ( axi_slv_o[0]),
     .axi_reg_o         ( axi_reg_o ),
     .axi_reg_i         ( axi_reg_i ),
     .axi_gpio_o        ( ),
@@ -1029,19 +1057,19 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
   assign uart_rx_i        = vio_uart_sel ? uart_rx_i_cp2108 : uart_rx_i_gpio;
 
 `ifdef USE_MPSOC
+  // Keep a single-ended copy of the system clock for DRAM and MPSoC clocks.
   IBUFDS #(
     .IBUF_LOW_PWR ("FALSE")
-  ) i_bufds_dram_ref_clk (
-    .I  ( sys_clk_p     ),
-    .IB ( sys_clk_n     ),
-    .O  ( dram_ref_clk  )
+  ) i_bufds_sys_clk (
+    .I  ( sys_clk_p ),
+    .IB ( sys_clk_n ),
+    .O  ( sys_clk   )
   );
 
   zcu102_mpsoc_wrapper MPSoC_controller_0 (
-    .clk_50   ( soc_clk  ),
-    .clk_15   ( clk15),
-    .CLK_IN1_D_clk_n(sys_clk_n),
-    .CLK_IN1_D_clk_p(sys_clk_p),
+    .sys_clk        ( sys_clk   ),
+    .clk_50          ( soc_clk   ),
+    .clk_15          ( clk15     ),
     .probe_out0 ( vio_reset         ),
     .probe_out1 ( vio_boot_mode     ),
     .probe_out2 ( vio_boot_mode_sel ),
@@ -1096,8 +1124,6 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .IB ( sys_clk_n ),
     .O  ( sys_clk   )
   );
-
-  assign dram_ref_clk = sys_clk;
 
   clkwiz i_clkwiz (
     .clk_in1  ( sys_clk ),

@@ -23,7 +23,11 @@ import_files -fileset constrs_1 -norecurse ${xilinx_root}/constraints/${board}.x
 source ${xilinx_root}/scripts/add_sources.${board}.tcl
 
 # Set top module
-set_property top ${proj}_top_xilinx [current_fileset]
+if {${board} == "zcu102"} {
+    set_property top cheshire_top_xilinx [current_fileset]
+} else {
+    set_property top ${proj}_top_xilinx [current_fileset]
+}
 update_compile_order -fileset sources_1
 
 # Add block design
@@ -42,16 +46,22 @@ if {[file exists "${xilinx_root}/scripts/chs-bd-${board}.tcl"]} {
 # Set synthesis propertiesl
 # TODO: investigate resource-affordable retiming
 set_property XPM_LIBRARIES XPM_MEMORY [current_project]
-set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
+#set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 
 # Elaborate and open design to explore all clocks
 
 #set_param general.maxThreads 8
 
-synth_design -rtl -name rtl_1
-report_clocks -file ${project_root}/clocks.rpt
+# rtl_1 disabled: it kept the whole elaborated design (~32 GB) in the Vivado master
+# for the entire synth/impl and caused OOM on the 31 GB VM. It only fed clocks.rpt;
+# regenerate on demand with: open_run synth_1; report_clocks.
+#synth_design -rtl -name rtl_1
+#report_clocks -file ${project_root}/clocks.rpt
 
 
+# FLATTEN_HIERARCHY left at the default 'rebuilt': 'none' (an anti-OOM leftover) blocked
+# cross-boundary optimization and hurt timing/area. Memory is no longer the constraint.
+#set_property STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY none [get_runs synth_1]
 
 # Synthesis
 launch_runs -jobs $num_jobs synth_1
@@ -63,9 +73,11 @@ gen_reports ${project_root}/reports.synth
 
 # Instantiate debug core and ILAs
 # TODO: debug this
-insert_ilas {soc_clk}
+#insert_ilas {soc_clk}
 
 # Set implementation properties
+# Extra timing effort for the real board (opt/place/route + phys_opt targeting timing).
+# Roughly doubles impl time but improves slack margin and robustness.
 set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
 
 # Implementation

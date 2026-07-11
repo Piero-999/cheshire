@@ -54,9 +54,12 @@ target/xilinx/build
 target/xilinx/out
 target/xilinx/scripts/add_sources.*
 vivado*
+target/xilinx/scripts/misc
+target/xilinx/releases
 
 # Temporary files
 guides/*
+CLAUDE.md
 work/*
 chs_env/*
 riscv*/*
@@ -69,3 +72,5 @@ bitfile/*
 sw/SPI_reckon/*
 ./*.log
 bitfile/*
+cmake-4.3.0-rc3-linux-x86_64.sh
+cva6_signals._list.txt

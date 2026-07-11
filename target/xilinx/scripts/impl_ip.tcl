@@ -131,7 +131,7 @@ switch $proj {
                     CONFIG.RESET_BOARD_INTERFACE {Custom} \
                     CONFIG.USE_RESET {true} \
                     CONFIG.PRIM_SOURCE {No_Buffer} \
-                    CONFIG.PRIM_IN_FREQ {125.000} \
+                    CONFIG.PRIM_IN_FREQ {300.000} \
                     CONFIG.CLKOUT1_USED {true} \
                     CONFIG.CLKOUT2_USED {true} \
                     CONFIG.CLKOUT3_USED {true} \
