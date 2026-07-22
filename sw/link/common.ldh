@@ -17,7 +17,11 @@ MEMORY {
   extrom (rx)   : ORIGIN = 0x00000000, LENGTH = 48K
   spm (rwx)     : ORIGIN = 0x10000000, LENGTH = 64K
   /* We  assume at least 8 MiB of DRAM (minimum for Linux). */
-  dram (rwx)    : ORIGIN = 0x80000000, LENGTH = 8M
+  /* WORKAROUND (bitstream with LLC in bypass, LlcNotBypass=0 -> no SPM at
+     0x10000000): baremetal code has to runs from DRAM. starts at 0x80800000
+     so the first 8 MiB (0x80000000..0x80800000) are free as data buffer 
+     of the tests (DMA/streaming writes there). put back 0x80000000 spm is there again */
+  dram (rwx)    : ORIGIN = 0x80800000, LENGTH = 8M
 }
 
 SECTIONS {

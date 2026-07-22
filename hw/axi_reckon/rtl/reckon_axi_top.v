@@ -49,8 +49,20 @@ module reckon_axi_top #(
 
 );
 
-wire [31:0] SPI_CYCLES_PER_TICK;
-(* dont_touch = "yes" *) (* mark_debug = "true" *) wire [11:0] SPI_LABEL_DELAY, SPI_INFER_ACC_DELAY;
+// ===== ReckOn ILA debug switch =====
+// Define DEBUG_RECKON to instrument ReckOn's internal signals with a Vivado ILA.
+// The ILA is built by insert_ilas (target/xilinx/scripts/impl_sys.tcl), which self-gates on
+// MARK_DEBUG nets: with DEBUG_RECKON undefined, `RECKON_DBG expands to nothing -> no MARK_DEBUG
+// nets -> no ILA (normal/production bitstream, as before). Comment the line below to disable.
+`define DEBUG_RECKON
+`ifdef DEBUG_RECKON
+  `define RECKON_DBG (* dont_touch = "yes" *) (* mark_debug = "true" *)
+`else
+  `define RECKON_DBG
+`endif
+
+`RECKON_DBG wire [31:0] SPI_CYCLES_PER_TICK;
+`RECKON_DBG wire [11:0] SPI_LABEL_DELAY, SPI_INFER_ACC_DELAY;
 wire        SPI_TIMING;
 
 wire BATCH_DONE_wire, EPOCH_DONE_wire;
@@ -59,18 +71,18 @@ wire [ADDR_WIDTH-1:0] AXI_BRAM_ADDR;
 wire [31:0] BRAM_PORTA_dout_a, BRAM_PORTA_dout_b;
 
 wire AERIN_TAR_EN;
-wire TIME_TICK;
+`RECKON_DBG wire TIME_TICK;
 wire INFER_ACC;
 wire TIMING_ERROR_RDY;
 
 wire [31:0] DIN, DIN_TRAIN, DIN_VAL;
-wire CS, CS_T, CS_V;
-wire [ADDR_WIDTH-1:0] RAM_ADDR;
+`RECKON_DBG wire CS, CS_T, CS_V;
+`RECKON_DBG wire [ADDR_WIDTH-1:0] RAM_ADDR;
 wire AERIN_REQ, AERIN_ACK;
 wire SAMPLE, TARGET_VALID;
 wire SPI_RDY, SPI_TIMING_MODE;
 wire OUT_REQ, OUT_ACK;
-wire BATCH_DONE, EPOCH_DONE;
+`RECKON_DBG wire BATCH_DONE, EPOCH_DONE;
 
 assign AXI_BRAM_ADDR = BRAM_PORTA_addr[ADDR_WIDTH+1:2];
 assign BATCH_DONE_wire = BATCH_DONE;
@@ -101,8 +113,8 @@ always @(posedge clk_i) begin
   NEW_EPOCH_strb  <= ~NEW_EPOCH_sync2 & NEW_EPOCH_sync;
 end
 
-(* dont_touch = "yes" *) (* mark_debug = "true" *) wire [11:0] N_SAMPLES, BATCH_SIZE, N_EPOCHS;
-(* dont_touch = "yes" *) (* mark_debug = "true" *) wire [2:0 ] DO_EPROP;
+`RECKON_DBG wire [11:0] N_SAMPLES, BATCH_SIZE, N_EPOCHS;
+`RECKON_DBG wire [2:0 ] DO_EPROP;
 
 (* ASYNC_REG = "TRUE" *) reg  [11:0] N_SAMPLES_reg, BATCH_SIZE_reg, N_EPOCHS_reg, N_SAMPLES_sync, BATCH_SIZE_sync, N_EPOCHS_sync;
 (* ASYNC_REG = "TRUE" *) reg  [2:0 ] DO_EPROP_reg, DO_EPROP_sync, DO_EPROP_sync2;
@@ -141,7 +153,7 @@ assign N_EPOCHS   = N_EPOCHS_sync2;
 // the CDC once. With aer_decoder in HALF_BATCH the read gate is unused (stream_stall_i
 // tied to 0).
 
-wire new_batch_fsm;
+`RECKON_DBG wire new_batch_fsm;
 wire data_exhausted_gated;
 
 stream_ctrl_fsm2 #(

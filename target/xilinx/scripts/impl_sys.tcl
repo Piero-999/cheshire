@@ -71,9 +71,10 @@ open_run synth_1
 # Generate synthesis reports
 gen_reports ${project_root}/reports.synth
 
-# Instantiate debug core and ILAs
-# TODO: debug this
-#insert_ilas {soc_clk}
+# Instantiate debug core and ILAs. Self-gating: builds an ILA only if there are MARK_DEBUG
+# nets, which depend on `define DEBUG_RECKON in hw/axi_reckon/rtl/reckon_axi_top.v.
+# With DEBUG_RECKON undefined there are no MARK_DEBUG nets, so this is a no-op (no ILA).
+insert_ilas {soc_clk}
 
 # Set implementation properties
 # Extra timing effort for the real board (opt/place/route + phys_opt targeting timing).
