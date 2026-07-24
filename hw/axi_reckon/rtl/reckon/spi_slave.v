@@ -69,6 +69,7 @@ module spi_slave  #(
     input  wire                 SCK,
     output wire                 MISO,
     input  wire                 MOSI,
+    input  wire                 CSN,
 
     // Global output -------------------------
     output  reg        [  15:0] SPI_ADDR,
@@ -194,7 +195,7 @@ module spi_slave  #(
     always @(negedge SCK, posedge RST_async)
         if      (RST_async)                                      spi_cnt <= 17'd0;
         else if (&spi_cnt[4:0] && (spi_cnt[16:5] >= num_write))  spi_cnt <= 17'd0;
-        else                                                     spi_cnt <= spi_cnt + 17'd1;
+        else                                                     spi_cnt <= CSN ? 17'd0 : spi_cnt + 17'd1;
     assign num_write = (spi_cnt == 17'd31) ? spi_shift_reg_in[27:16] : spi_addr[27:16];
 
     always @(negedge SCK, posedge RST_async)
@@ -202,7 +203,7 @@ module spi_slave  #(
         else if (spi_cnt == 17'd31)                              spi_addr <= spi_shift_reg_in[31:0];
     
     always @(posedge SCK)
-        spi_shift_reg_in <= {spi_shift_reg_in[30:0], MOSI};
+        spi_shift_reg_in <= CSN ? 32'd0 : {spi_shift_reg_in[30:0], MOSI};
         
     always @(negedge SCK, posedge RST_async)
         if (RST_async) begin
@@ -302,7 +303,7 @@ module spi_slave  #(
         
     // SPI MISO
     
-    assign MISO = (spi_addr[31] && ~|spi_cnt[4:0] && |spi_cnt[16:5]) ? SRNN_READBACK[31] : spi_shift_reg_out[31];
+    assign MISO = CSN ? 1'b0 : ((spi_addr[31] && ~|spi_cnt[4:0] && |spi_cnt[16:5]) ? SRNN_READBACK[31] : spi_shift_reg_out[31]);
 
     // Using SPI for communicating the results of the inference
     //always @(posedge SCK)

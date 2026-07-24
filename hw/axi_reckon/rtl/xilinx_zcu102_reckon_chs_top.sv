@@ -886,6 +886,9 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     .spi_sck_wire    ( spi_sck_soc       ),
     .spi_mosi_wire   ( spi_sd_soc_out[0] ),
     .spi_miso_wire   ( reckon_spi_miso  ),
+    // CS0: matches RECKON_SPI_CSID = 0 in sw/tests/reckon_streaming.spm.c. Active low,
+    // so it resynchronises ReckOn's SPI frame counter between transactions.
+    .spi_csn_wire    ( spi_cs_soc[0]     ),
     .BRAM_PORTA_addr(AERAM_add),
     .BRAM_PORTA_clk(AERAM_clk),
     .BRAM_PORTA_din(AERAM_din),

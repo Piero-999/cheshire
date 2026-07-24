@@ -64,6 +64,7 @@ work/*
 chs_env/*
 riscv*/*
 cmake*/*
+util/*
 
 .Xil
 *.mif

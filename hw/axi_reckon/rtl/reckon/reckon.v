@@ -45,6 +45,7 @@ module reckon #(
     input  wire         SCK,
     input  wire         MOSI,
     output wire         MISO,
+    input wire          CSN,
 
     // Input bus and control inputs ------------------
     input  wire [M-1:0] AERIN_ADDR,
@@ -205,6 +206,7 @@ module reckon #(
         .SCK(SCK),
         .MISO(MISO),
         .MOSI(MOSI),
+        .CSN(CSN),
         
         // Global output -------------------------
         .SPI_ADDR(SPI_ADDR),

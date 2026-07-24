@@ -23,6 +23,10 @@ module reckon_axi_top #(
     output wire spi_miso_wire,
     input wire spi_mosi_wire,
     input wire spi_sck_wire,
+    // Active-low chip select from the SoC SPI host. It resynchronises the slave's
+    // free-running frame counter on every transaction (see spi_slave.v): without it a
+    // single misaligned frame desyncs every following one, permanently.
+    input wire spi_csn_wire,
 
     input wire  [ADDR_WIDTH+1:0] BRAM_PORTA_addr,
     input wire                   BRAM_PORTA_clk,
@@ -190,6 +194,7 @@ reckon #(
     .SCK (spi_sck_wire),
     .MOSI(spi_mosi_wire),
     .MISO(spi_miso_wire),
+    .CSN (spi_csn_wire),
 
     // Input bus and control inputs ------------------
     .AERIN_ADDR(AERIN_ADDR),
