@@ -28,16 +28,19 @@ SECTIONS {
     *(.sdata.*)
   } > dram
 
-  . = ALIGN(32);
-  __bss_start = .;
-  .bss : {
+  /* Define the bounds INSIDE the output section. Assigning them from the location
+     counter outside it does not track a section allocated via `> dram`: both symbols
+     collapsed to the same address, so _start's zeroing loop cleared 0 bytes and every
+     .bss variable came up holding whatever the previous run left in DRAM. */
+  .bss : ALIGN(32) {
+    __bss_start = .;
     *(.bss)
     *(.bss.*)
     *(.sbss)
     *(.sbss.*)
+    . = ALIGN(32);
+    __bss_end = .;
   } > dram
-  . = ALIGN(32);
-  __bss_end = .;
 
   .bulk : ALIGN(16) {
     *(.bulk)
