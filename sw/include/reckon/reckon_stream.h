@@ -8,6 +8,10 @@
 //     reckon_stream_run()    STEP 3  double-buffered streaming + measurement
 //     reckon_report()                publish telemetry and print the summary
 //
+// STEP 2 has two implementations, selected by RECKON_DATA_FROM_PS:
+//     0 (default)  reckon_prepare_ddr()      the CVA6 builds the dataset itself
+//     1            reckon_wait_ddr_from_ps() the PS wrote it; we wait and check
+//
 // The transport that moves one BRAM half is NOT implemented here: each test
 // provides it, which is the only difference between reckon_stream_cva6.c and
 // reckon_stream_idma.c.
@@ -34,7 +38,19 @@
 #include <stdint.h>
 
 #include "reckon/reckon_bringup.h"
+#include "reckon/reckon_ps_mbox.h"  // PS <-> CVA6 contract: addresses, mailbox, checksum
+
+// Where the samples in DDR4 come from. 0 = the CVA6 packs them from the copy of
+// the reference dataset baked into the ELF; 1 = the PS wrote them over
+// M_AXI_HPM0_FPD and we only wait for its mailbox and validate. Define it to 1 in
+// the test TU *before* including this header (sw/tests/reckon_stream_ps.c).
+#ifndef RECKON_DATA_FROM_PS
+#define RECKON_DATA_FROM_PS  0
+#endif
+
+#if !RECKON_DATA_FROM_PS
 #include "reckon/reckon_dataset_ref.h"  // ref_sample[][], ref_sample_len[], REF_N_SAMPLES
+#endif
 
 // ---------------------------------------------------------------------------
 // Dataset geometry
@@ -63,6 +79,13 @@
 #define RECKON_GRANT_TIMEOUT_MS  500u
 #define RECKON_EPOCH_TIMEOUT_MS  5000u
 
+// How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only). The
+// intended flow is "PS writes first, then run_test.sh", so the magic is normally
+// already there and this costs nothing. If you want the firmware to sit and wait
+// for the PS instead, raise this AND run_test.sh's sleep window (RUN_SLEEP_MS),
+// which halts the core when it expires no matter what the firmware is doing.
+#define RECKON_PS_WAIT_TIMEOUT_MS  5000u
+
 static inline uint64_t rk_deadline(uint64_t core_freq, uint32_t ms) {
     return get_mcycle() + (uint64_t)ms * core_freq / 1000ull;
 }
@@ -72,8 +95,9 @@ void reckon_transport_copy(uint64_t dst, uint64_t src, uint64_t nbytes);
 extern const char *const reckon_transport_name;
 
 // ---------------------------------------------------------------------------
-// STEP 2 - prepare the reference dataset in DDR4
+// STEP 2 - get the dataset into DDR4
 // ---------------------------------------------------------------------------
+#if !RECKON_DATA_FROM_PS
 // OUTSIDE every measurement window, and deliberately so: this is a placeholder
 // for the PS writing the samples into DDR4 over its own AXI master. When that
 // lands, this step disappears from the firmware entirely and the streaming code
@@ -129,6 +153,118 @@ static inline int reckon_prepare_ddr(void) {
     uart_write_flush(&__base_uart);
     return 0;
 }
+
+#else  // RECKON_DATA_FROM_PS
+
+// Exhaustive instead of sampled handover check: ~240 ms instead of ~1 ms, only
+// worth it when chasing a suspected single-word corruption. See reckon_ps_mbox.h.
+#ifndef RECKON_PS_FULL_CHECKSUM
+#define RECKON_PS_FULL_CHECKSUM 0
+#endif
+
+// The PS wrote the samples over M_AXI_HPM0_FPD; this side only waits for the
+// handover and checks that what landed is what was announced. Still outside every
+// measurement window, exactly like the placeholder it replaces, so the transport
+// and consume numbers stay comparable with LOGBOOK 8.5/8.7.
+//
+// The producer is util/reckon/ps/reckon_feed.c; the address offset and the
+// mailbox layout are in reckon_ps_mbox.h. Note that neither side needs a cache
+// maintenance operation: nothing is cacheable on this core and the PS maps the
+// aperture as Device memory.
+static inline volatile uint32_t *rk_mbox(void) {
+    return (volatile uint32_t *)RK_MBOX_CVA6_ADDR;
+}
+
+// On success *seq_out carries the producer's sequence number, which
+// reckon_ps_ack() echoes back so the PS can tell its own run from a stale ack.
+static inline int reckon_wait_ddr_from_ps(const reckon_clocks_t *clk, uint32_t *seq_out) {
+    volatile uint32_t *mb = rk_mbox();
+
+    *seq_out = 0;
+
+    printf("  waiting for the PS: mailbox at 0x%08X (PS writes 0x%08X), timeout %u ms\n",
+           (uint32_t)RK_MBOX_CVA6_ADDR, (uint32_t)RK_MBOX_PS_ADDR,
+           RECKON_PS_WAIT_TIMEOUT_MS);
+    uart_write_flush(&__base_uart);
+
+    uint64_t deadline = rk_deadline(clk->core_freq, RECKON_PS_WAIT_TIMEOUT_MS);
+    while (mb[RK_MBOX_W_MAGIC] != RK_MBOX_MAGIC) {
+        if (get_mcycle() > deadline) {
+            printf("  mailbox word0 = %08X, expected %08X\n",
+                   mb[RK_MBOX_W_MAGIC], RK_MBOX_MAGIC);
+            printf("  the PS writes at CVA6 address + 0x%08X: check it used 0x%08X\n",
+                   (uint32_t)RK_PS_TO_CVA6_OFFSET, (uint32_t)RK_MBOX_PS_ADDR);
+            reckon_fail("no handover from the PS within the timeout");
+            return 1;
+        }
+    }
+
+    uint32_t seq        = mb[RK_MBOX_W_SEQ];
+    uint32_t n_halves   = mb[RK_MBOX_W_N_HALVES];
+    uint32_t per_half   = mb[RK_MBOX_W_SAMPLES];
+    uint32_t half_words = mb[RK_MBOX_W_HALF_WORDS];
+#if RECKON_PS_FULL_CHECKSUM
+    uint32_t want_sum   = mb[RK_MBOX_W_CHECKSUM];
+#else
+    uint32_t want_sum   = mb[RK_MBOX_W_SAMPLE_SUM];
+#endif
+
+    // Consume-once. The mailbox lives in DRAM and DRAM survives an ELF reload, so
+    // without this a second run would find the previous run's magic and stream a
+    // stale buffer while looking perfectly healthy - the same class of trap as the
+    // free-running fill_cnt/consumed counters (reckon_bringup.h, warm-restart).
+    mb[RK_MBOX_W_MAGIC] = 0;
+    fence();
+
+    if (n_halves != N_HALVES_TOTAL || per_half != SAMPLES_PER_HALF ||
+        half_words != HALF_WORDS) {
+        printf("  PS announced %u halves x %u samples, %u words/half; "
+               "this firmware wants %u x %u, %u\n",
+               n_halves, per_half, half_words,
+               N_HALVES_TOTAL, SAMPLES_PER_HALF, HALF_WORDS);
+        reckon_fail("geometry mismatch: regenerate the image with gen_ps_dataset.py");
+        return 1;
+    }
+
+    // This is what distinguishes "the PS wrote the data" from "the PS wrote the
+    // mailbox" - the failure a wrong aperture offset produces. It samples rather
+    // than scans: see rk_sum32_sampled in reckon_ps_mbox.h for what that trades
+    // away and why. ~1 ms instead of ~240 ms, i.e. it no longer costs more than
+    // the epoch it guards. Still outside every measurement window either way;
+    // never move it inside one.
+    uint64_t t0 = get_mcycle();
+#if RECKON_PS_FULL_CHECKSUM
+    uint32_t got_sum = rk_sum32((const volatile uint32_t *)DRAM_BASE_ADDR,
+                                N_HALVES_TOTAL * HALF_WORDS);
+    const char *how = "full";
+#else
+    uint32_t got_sum = rk_sum32_sampled((const volatile uint32_t *)DRAM_BASE_ADDR,
+                                        N_HALVES_TOTAL * HALF_WORDS);
+    const char *how = "sampled";
+#endif
+    uint32_t dt = (uint32_t)(get_mcycle() - t0);
+    // Publish it: with no PS console and the UART not always wired, this word is
+    // the only way to see from Linux what the check actually cost.
+    mb[RK_MBOX_W_ACK_CHK_CY] = dt;
+    fence();
+
+    if (got_sum != want_sum) {
+        printf("  %s checksum over %u KiB: got %08X, PS announced %08X\n",
+               how, (N_HALVES_TOTAL * HALF_BYTES) >> 10, got_sum, want_sum);
+        reckon_fail("payload does not match the mailbox: partial or misplaced write");
+        return 1;
+    }
+
+    printf("  PS handover ok: seq=%u, %u halves x %u samples, %s checksum %08X "
+           "(verified in %u cycles)\n",
+           seq, n_halves, per_half, how, got_sum, dt);
+    uart_write_flush(&__base_uart);
+
+    *seq_out = seq;
+    return 0;
+}
+
+#endif  // RECKON_DATA_FROM_PS
 
 // ---------------------------------------------------------------------------
 // STEP 3 - streaming
@@ -357,3 +493,21 @@ static inline void reckon_report(const reckon_result_t *r, const reckon_clocks_t
                "      reported as deltas of THIS run. Reset the SoC for an absolute reading.\n");
     uart_write_flush(&__base_uart);
 }
+
+#if RECKON_DATA_FROM_PS
+// Closes the loop back to the producer. The PS cannot read stream_status itself
+// (HPM0 only reaches the DRAM aperture in this bitstream, not the 0x4000_0000
+// register window), so the outcome is mirrored into the mailbox for it. The
+// status word goes out before the ack word: the ack is what the PS polls on, so
+// everything it will read must already be in place when the ack lands.
+static inline void reckon_ps_ack(uint32_t seq, uint32_t rc, const reckon_result_t *r) {
+    volatile uint32_t *mb = rk_mbox();
+
+    mb[RK_MBOX_W_ACK_SEQ]    = seq;
+    mb[RK_MBOX_W_ACK_STATUS] = r->status_raw;
+    mb[RK_MBOX_W_ACK_EPOCH]  = r->epoch;
+    fence();
+    mb[RK_MBOX_W_ACK]        = RK_MBOX_ACK_BASE | (rc & 0xFFFFu);
+    fence();
+}
+#endif
