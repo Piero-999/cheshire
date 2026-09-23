@@ -75,3 +75,7 @@ sw/SPI_reckon/*
 bitfile/*
 cmake-4.3.0-rc3-linux-x86_64.sh
 cva6_signals._list.txt
+# gli script del flusso ReckOn: la riga util/* qui sopra li ingoiava
+!util/reckon/
+util/reckon/out/
+util/reckon/__pycache__/
