@@ -86,6 +86,14 @@
 // which halts the core when it expires no matter what the firmware is doing.
 #define RECKON_PS_WAIT_TIMEOUT_MS  5000u
 
+// What each epoch writes into DO_EPROP, ReckOn's 3-bit learning enable. 0 keeps
+// the network in inference, as in every measurement so far; 7, ReckOn's own
+// reset value, enables the update on all three weight sets. The weights are only
+// programmed with RECKON_PROGRAM_WEIGHTS, so 7 alone is a transport test.
+#ifndef RECKON_DO_EPROP
+#define RECKON_DO_EPROP  0u
+#endif
+
 static inline uint64_t rk_deadline(uint64_t core_freq, uint32_t ms) {
     return get_mcycle() + (uint64_t)ms * core_freq / 1000ull;
 }
@@ -371,7 +379,7 @@ static inline int reckon_stream_run(reckon_stream_t *s, reckon_result_t *r) {
     reckon_wr(OUT_REG0_BATCH_SIZE, SAMPLES_PER_HALF);
     reckon_wr(OUT_REG1_N_EPOCHS, 1);
     reckon_wr(OUT_REG2_N_SAMPLES, SAMPLES_PER_HALF * N_HALVES_TOTAL);
-    reckon_wr(OUT_REG3_DO_EPROP, 0);  // no e-prop: weights are not loaded yet
+    reckon_wr(OUT_REG3_DO_EPROP, RECKON_DO_EPROP);  // 0 unless a test asks for e-prop
 
     // --- prime half 0: it must be full before NEW_EPOCH, and it is NOT part of
     //     the epoch window (in_epoch is still 0) ---
