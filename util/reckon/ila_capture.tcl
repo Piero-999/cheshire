@@ -29,8 +29,8 @@ file mkdir $OUT_DIR
 
 # ---------------------------------------------------------------- connect ----
 open_hw_manager
-if {[catch {connect_hw_server -url $URL} e]} { puts "connect_hw_server: $e (gia' connesso?)" }
-if {[catch {open_hw_target} e]}             { puts "open_hw_target: $e -- GUI HW Manager aperto? Chiudilo." ; exit 1 }
+if {[catch {connect_hw_server -url $URL} e]} { puts "connect_hw_server: $e (already connected?)" }
+if {[catch {open_hw_target} e]}             { puts "open_hw_target: $e -- is the Vivado GUI Hardware Manager open? Close it." ; exit 1 }
 current_hw_device [get_hw_devices $DEVICE]
 # Associate probe definitions (.ltx) FIRST so probe names resolve even when we
 # are not programming (otherwise get_hw_probes returns nothing).

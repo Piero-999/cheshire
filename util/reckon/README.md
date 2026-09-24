@@ -40,6 +40,10 @@ GUI Hardware Manager** first, otherwise `open_hw_target` fails because the GUI a
 target. `hw_server` on `:3121` may stay up. To view a waveform afterwards, open the saved
 `out/capture_*.ila` in the GUI.
 
+The ILA is only in the debug build, `target/xilinx/out/with_ila/`, which is where `config.sh` points
+these scripts. After `reckon.py load`, which configures the build without it, the next `debug.sh`
+needs `--program`.
+
 ## Knobs that are not documented elsewhere
 
 - The VIO reset drives the real `rst_n`, so it resets ReckOn's `clk_15` domain as well. Use
