@@ -1,31 +1,11 @@
 #!/usr/bin/env python3
 """Load the Cheshire bitstream into the PL from PS Linux.
 
-Runs on the ZCU102 PS. First step of the flow: the board holds the bitstream and
-the training set, the PS configures the fabric over PCAP, writes the samples into
-PL DDR4 (reckon_feed), and only then does JTAG come in from outside to load and
-start the CVA6 firmware. See README.md section 5.1 in the repository root.
-
-Two paths to the same PCAP. The default strips the .bit header, byte-swaps the
-32-bit words and hands the result to the kernel FPGA manager - which is what PYNQ
-does internally as well. It is the default because it depends on nothing but the
-kernel: no venv, no environment variables, no XRT.
-
---pynq uses PYNQ instead. It needs two things that a non-login shell does not
-have, and without them PYNQ fails with "AttributeError: 'NoneType' object has no
-attribute 'xclOpen'" / "RuntimeError: No Devices Found", which looks like a
-missing XRT and is not:
-  * XILINX_XRT in the environment (set by /etc/profile.d/xrt_setup.sh, which
-    `ssh host 'cmd'` never sources; the libraries themselves are in /usr/lib);
-  * the venv interpreter /usr/local/share/pynq-venv/bin/python3 - the system
-    python3 cannot import pynq (missing pydantic).
---pynq satisfies both by re-executing itself, so it works from a plain ssh too.
-
-Caveat for anyone adding an .hwh: PYNQ 3.0's download() calls set_axi_port_width(),
-which rewrites the FPD AFI registers from the design metadata. With a bare .bit
-the call returns immediately and leaves the 128-bit HPM0_FPD setting this design
-relies on untouched. With metadata present it may not, and it breaks the PS->DDR4
-bridge silently.
+Runs on the ZCU102 PS, as the first step of the flow (README.md section 5.1).
+By default it strips the .bit header, byte-swaps the 32-bit words and hands the
+result to the kernel FPGA manager, which is also what PYNQ does; it needs nothing
+but the kernel. --pynq uses PYNQ instead, re-executing itself with the PYNQ venv
+and XILINX_XRT, which a plain `ssh host 'cmd'` does not provide.
 
 Usage (on the board, as root):
     reckon_load.py cheshire.zcu102.bit               # fpga_manager, the default

@@ -1,33 +1,16 @@
-// PS <-> CVA6 mailbox in PL DDR4, shared contract between:
-//   * the firmware       sw/tests/reckon_stream_ps.c   (RISC-V, reads the data)
-//   * the PS producer    util/reckon/ps/reckon_feed.c  (aarch64, writes the data)
+// PS <-> CVA6 mailbox in PL DDR4, shared by the firmware (sw/tests/reckon_stream_ps*.c,
+// RISC-V) and the PS producer (util/reckon/ps/reckon_feed.c, aarch64). Both
+// toolchains compile it: stdint.h only.
 //
-// Keep this header free of any RISC-V- or Linux-specific include: it is compiled
-// by both toolchains. stdint.h only.
+// The two sides see the same DDR4 cells at different addresses:
 //
-// THE ADDRESS OFFSET (read this before debugging anything)
-// -------------------------------------------------------
-// The two sides see the same DRAM cells at DIFFERENT addresses.
+//   PS 0xA000_0000 == CVA6 0x8000_0000
 //
-//   PS  0xA000_0000  ==  CVA6 0x8000_0000     (same physical DDR4 cell)
+// The PS puts its HPM0 address on the bus unchanged, Cheshire decodes it as DRAM,
+// and the DDR4 controller keeps only addr[28:0]: both land on offset 0.
 //
-// Why: the ZynqMP M_AXI_HPM0_FPD low aperture is 0xA000_0000..0xAFFF_FFFF and the
-// PS puts the *physical* address on the bus with no base subtraction. Cheshire
-// routes 0x8000_0000..0x1_0000_0000 to the DRAM port (cheshire_pkg.sv gen_axi_out),
-// so 0xA000_0000 is decoded as DRAM; the PL DDR4 is 512 MiB (AxiAddressWidth=29)
-// and dram_wrapper_xilinx.sv:250-251 truncates to addr[28:0], so 0xA000_0000 and
-// 0x8000_0000 alias onto the same offset 0. The 256 MiB aperture therefore covers
-// CVA6 0x8000_0000..0x8FFF_FFFF, which contains both the dataset halves and the
-// firmware image at 0x8080_0000.
-//
-// Rule of thumb: PS address = CVA6 address + 0x2000_0000.
-//
-// COHERENCE
-// ---------
-// Nothing is cacheable on the CVA6 side (gen_cva6_noCache_cfg, NrCachedRegionRules
-// = 0), and the PS maps the aperture with O_SYNC (Device-nGnRnE). No flush or
-// invalidate is needed in either direction; only ordering, which is why the
-// producer writes RK_MBOX_MAGIC last and reads it back.
+// Nothing is cacheable on the CVA6 and the PS maps the aperture with O_SYNC, so no
+// cache maintenance is needed; only ordering: the producer writes the magic last.
 
 #pragma once
 
@@ -40,20 +23,16 @@
 #define RK_CVA6_DRAM_BASE     0x80000000ull  // what the CVA6 sees
 #define RK_PS_TO_CVA6_OFFSET  (RK_PS_APERTURE_BASE - RK_CVA6_DRAM_BASE)  // 0x2000_0000
 
-// Dataset payload lives at DRAM offset 0: CVA6 0x8000_0000, PS 0xA000_0000.
-// N_HALVES_TOTAL * HALF_BYTES = 4 * 128 KiB = 512 KiB, ending at offset 0x8_0000.
+// Dataset payload at DRAM offset 0: 4 halves x 128 KiB = 512 KiB.
 #define RK_DATA_OFF   0x00000000ull
 
-// Mailbox at DRAM offset 1 MiB: CVA6 0x8010_0000, PS 0xA010_0000.
-// Clear of the dataset (ends at 0x8_0000) and of the firmware image, which the
-// linker places at 0x8080_0000 with the stack at the top of the 8 MiB region
-// (sw/link/common.ldh, sw/link/dram.ld).
+// Mailbox at offset 1 MiB, clear of the dataset and of the firmware at 0x8080_0000.
 #define RK_MBOX_OFF   0x00100000ull
 
 #define RK_MBOX_CVA6_ADDR  (RK_CVA6_DRAM_BASE   + RK_MBOX_OFF)  // 0x8010_0000
 #define RK_MBOX_PS_ADDR    (RK_PS_APERTURE_BASE + RK_MBOX_OFF)  // 0xA010_0000
 
-// How much of the aperture the producer needs to map: mailbox end, rounded up.
+// How much of the aperture the producer maps: up to the mailbox, rounded up.
 #define RK_PS_MAP_BYTES  0x00200000ull  // 2 MiB
 
 // ---------------------------------------------------------------------------
@@ -72,12 +51,7 @@
 //     9   0x24  CVA6->PS ack_seq          echo of word 1
 //    10   0x28  CVA6->PS ack_status       stream_status at EPOCH_DONE
 //    11   0x2c  CVA6->PS ack_epoch_cy     epoch duration in core cycles
-//    12   0x30  CVA6->PS ack_chk_cy       cycles the CVA6 spent checking the payload.
-//                                         Published because there is no PS console
-//                                         and the UART is not always wired: it is how
-//                                         you confirm from Linux that the handover
-//                                         check stayed cheap. Compare against
-//                                         ack_epoch_cy - it must be a small fraction.
+//    12   0x30  CVA6->PS ack_chk_cy       cycles spent checking the payload
 #define RK_MBOX_W_MAGIC        0u
 #define RK_MBOX_W_SEQ          1u
 #define RK_MBOX_W_N_HALVES     2u
@@ -101,9 +75,8 @@
 // ---------------------------------------------------------------------------
 // Dataset file header (util/reckon/gen_ps_dataset.py -> reckon_feed.c)
 // ---------------------------------------------------------------------------
-// The producer does NOT pack samples: the host generator emits the exact image
-// to be copied into DDR4, so the packing logic cannot drift between the two
-// sides. The file is this 32-byte header followed by payload_bytes of payload.
+// The file is this 32-byte header followed by the payload exactly as it goes into
+// DDR4: the producer copies it and does not pack anything.
 #define RK_DSFILE_MAGIC    0x524B4453u  // 'R','K','D','S' as a LE u32
 #define RK_DSFILE_VERSION  1u
 
@@ -118,50 +91,17 @@ typedef struct {
     uint32_t reserved;
 } rk_dsfile_hdr_t;
 
-// The one checksum definition both sides use: plain 32-bit wrapping sum of the
-// payload words. On the PS this runs over ordinary cached RAM and costs nothing;
-// it is what validates the dataset FILE. Do not run it over the aperture on
-// either side unless you are debugging - see rk_sum32_sampled below for why.
+// Plain 32-bit wrapping sum of the payload words. It validates the dataset file on
+// the PS; the firmware runs it only with -DRECKON_PS_FULL_CHECKSUM=1.
 static inline uint32_t rk_sum32(const volatile uint32_t *p, uint32_t nwords) {
     uint32_t s = 0;
     for (uint32_t i = 0; i < nwords; i++) s += p[i];
     return s;
 }
 
-// ---------------------------------------------------------------------------
-// The handover check, and why it samples instead of scanning
-// ---------------------------------------------------------------------------
-// Reading DDR4 is the expensive operation on this system: nothing is cacheable on
-// the CVA6 (gen_cva6_noCache_cfg, NrCachedRegionRules = 0), so a full sum32 over
-// the 512 KiB payload is 131072 words x ~91.8 cycles = ~240 ms at 50 MHz - MORE
-// than the 192.85 ms epoch it is guarding. That is the wrong shape for a
-// handshake: the check must not cost more than the work.
-//
-// What the check actually has to catch is a payload that did not land where the
-// mailbox says it did: a wrong aperture offset, a truncated write, a half that
-// never arrived. All of those are gross, contiguous failures, so sampling one
-// word per RK_SUM_STRIDE finds them just as reliably as scanning every word -
-// 512 samples still put 128 probes in each of the four halves. 513 reads instead
-// of 131072: ~1 ms instead of ~240 ms.
-//
-// It is a rolling hash, not a sum, and that is deliberate. A sum - even one that
-// XORs each word with its index - cannot see two halves swapped: the halves are a
-// power of two apart, so a swap maps the sampled index set onto itself and the
-// index terms cancel exactly. Measured, not assumed: the XOR-with-index version
-// returned the identical value for the swapped buffer. FNV-1a makes the ORDER of
-// the samples part of the result, so any permutation shows up.
-//
-// What it gives up: a single flipped word in one of the RK_SUM_STRIDE-1 gaps.
-// That is a corruption mode this link has never shown. Build the firmware with
-// -DRECKON_PS_FULL_CHECKSUM=1 to get the exhaustive scan back when hunting one.
-//
-// What NEITHER version can see - be honest about it: this payload ends in 543
-// zero words (the last half is under-occupied), so a write truncated inside that
-// tail leaves content identical to a correct one. No content check can catch
-// that. Completeness is guaranteed by the ORDERING instead: the producer reads
-// the last payload word back before it publishes the magic, so a consumer that
-// sees the magic knows the burst has left the PS. The checksum is there for
-// placement, not for completeness.
+// The handover check. A full sum over the uncached DDR4 would take ~240 ms, more
+// than the epoch; this reads one word every RK_SUM_STRIDE plus the last, ~1 ms.
+// FNV-1a, so the order of the samples counts and two swapped halves are caught.
 #define RK_SUM_STRIDE  256u  // words between samples
 
 static inline uint32_t rk_sum32_sampled(const volatile uint32_t *p, uint32_t nwords) {

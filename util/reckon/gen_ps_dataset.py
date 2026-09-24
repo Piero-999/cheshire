@@ -1,48 +1,26 @@
 #!/usr/bin/env python3
 """Emit the DDR4 dataset image that the PS writes over M_AXI_HPM0_FPD.
 
-The firmware used to build this image itself, in reckon_prepare_ddr() /
-rk_pack_half() (sw/include/reckon/reckon_stream.h).  That step was a placeholder:
-the PS owns it now.  Rather than
-re-implementing the packing on the PS - where it could silently drift from the
-firmware's idea of the layout - this script replicates rk_pack_half() ONCE, here,
-and emits the finished image.  The PS producer then only has to copy bytes.
+It packs the samples as rk_pack_half() does (sw/include/reckon/reckon_stream.h),
+so the PS producer only copies bytes. The geometry and the samples are parsed out
+of the firmware sources:
 
-Everything it needs is parsed out of the firmware sources, so the geometry cannot
-go stale behind our back:
-
-    HALF_WORDS                      sw/include/reckon/reckon_bringup.h
+    HALF_WORDS                       sw/include/reckon/reckon_bringup.h
     SAMPLES_PER_HALF, N_HALVES_TOTAL sw/include/reckon/reckon_stream.h
     ref_sample[][], ref_sample_len[] sw/include/reckon/reckon_dataset_ref.h
 
-Output: a 32-byte rk_dsfile_hdr_t (see sw/include/reckon/reckon_ps_mbox.h)
-followed by n_halves * half_words * 4 bytes of payload.
+Output: a 32-byte rk_dsfile_hdr_t (sw/include/reckon/reckon_ps_mbox.h) followed
+by n_halves * half_words * 4 bytes of payload.
 
 Usage:
     util/reckon/gen_ps_dataset.py [-o util/reckon/ps/reckon_dataset.bin]
-    util/reckon/gen_ps_dataset.py --break-eos 3:20     # fault injection, see below
+    util/reckon/gen_ps_dataset.py --break-eos 3:20     # fault injection
 
-FAULT INJECTION (--break-eos, or RK_BREAK_EOS in the environment so it also works
-through reckon.py build, which calls this script with fixed arguments)
------------------------------------------------------------------------------
-Turns one sample's end-of-sample word into a no-op (code 1 -> 0) and recomputes
-the header checksum, so the image stays a VALID file that reckon_feed accepts.
-
-It exists to answer one question that no amount of code reading can settle: does
-the iDMA really transport the PS's bytes into the BRAM, or does ReckOn get its
-data some other way?  Every software check on both sides is blind to this fault
-by construction - the PS computes CHECKSUM and SAMPLE_SUM over the image it
-actually writes, so both match whatever we put there, and a word whose index is
-not a multiple of RK_SUM_STRIDE is not even read by the firmware's sampled hash.
-The handover therefore reports success with the SAME SAMPLE_SUM as a clean run.
-
-What changes is only what ReckOn sees: the half now holds BATCH_SIZE-1 complete
-samples, so cnt_sample_batch never reaches BATCH_SIZE, END_B never fires, and the
-epoch stalls on that half.  If that happens, the bytes reached the decoder
-through the iDMA and nothing else - there is no other carrier.
-
-Use it deliberately, then regenerate a clean image.  A leftover broken dataset
-looks healthy in every log the PS can print.
+--break-eos HALF:SAMPLE (or RK_BREAK_EOS in the environment, which also reaches
+it through reckon.py build) turns that sample's end-of-sample word into a no-op
+and recomputes the checksum, so the file stays valid and the handover reports
+success. The half then never reaches END_B and the epoch stalls: ReckOn's data
+comes through the iDMA and nowhere else. Regenerate a clean image afterwards.
 """
 
 import argparse

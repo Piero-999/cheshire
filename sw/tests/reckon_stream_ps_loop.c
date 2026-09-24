@@ -1,33 +1,16 @@
-// DDR4 -> BRAM -> ReckOn streaming with the dataset from the PS, IN A LOOP: one
-// JTAG start serves any number of epochs, each one a separate handover from the
-// PS. Everything done per epoch - bring-up, validation, streaming, measurement,
-// ack - is the code reckon_stream_ps.c runs once; this file only adds the loop
-// around it and a freshness rule the one-shot firmware cannot have.
-//
-// Why a loop: the PS reaches the DRAM aperture but not the debug module, so with
-// the one-shot firmware every epoch needs JTAG from outside. Here JTAG starts the
-// session once; after that the PS alone decides when the next epoch runs, and it
-// can write a different image each time.
-//
-// Freshness. The one-shot firmware streams whatever handover it finds standing,
-// so one left behind by a failed or abandoned run is consumed as if it were new.
-// The loop is started BEFORE the data, and that allows two rules:
-//   * a handover already standing when the session starts predates it: it is
-//     refused (rc = 3) and cleared instead of streamed;
-//   * inside the session, a handover must carry a sequence number greater than
-//     the last one accepted, or it is refused the same way.
-// A refusal is acked with the refused seq, so a producer still polling for it
-// gets a loud failure instead of silence.
+// DDR4 -> BRAM -> ReckOn streaming with the dataset from the PS, in a loop: one
+// JTAG start serves any number of epochs, one per handover from the PS. Each
+// epoch runs the code of reckon_stream_ps.c; this file adds the loop and two
+// freshness rules, refusing with rc = 3 and acking the refused seq:
+//   * a handover already standing when the session starts predates it;
+//   * inside the session, a seq not greater than the last one accepted.
 //
 // Session:
 //     dev host : util/reckon/reckon.py loop        # starts it, returns once listening
 //     PS       : sudo ./reckon_feed --seq N         # one epoch, waits for its own ack
 //                (again with a larger N for the next one; reckon.py feed --epochs)
-// It ends after RECKON_LOOP_IDLE_MS without a handover, or when the core is
-// halted over JTAG.
-//
-// Mailbox words 13 and 14 are unused by the one-shot contract; the loop publishes
-// its state there, so the dev host can read it over JTAG without the UART.
+// It ends after RECKON_LOOP_IDLE_MS without a handover, or when the core is halted
+// over JTAG. Its state is in mailbox words 13 and 14, readable over JTAG.
 
 #define RECKON_DATA_FROM_PS 1  // must precede reckon_stream.h
 

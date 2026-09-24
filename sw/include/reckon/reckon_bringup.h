@@ -8,34 +8,18 @@
 //     reckon_bringup()         SPI config + decoder reset + baseline latch
 //
 // This header DEFINES the ReckOn configuration tables (reckon_params_vec.h and
-// the weight matrices), so include it from exactly one translation unit. Each
-// test ELF is a single TU, so that is automatic here.
+// the weight matrices), so include it from exactly one translation unit.
 //
-// WARM-RESTART CONTRACT (why reckon_bringup() is not just "send the SPI config")
-// -----------------------------------------------------------------------------
-// reckon.py start reloads the ELF over JTAG and resumes; it never resets the SoC
-// (util/openocd.common.tcl has `reset_config none`). Three pieces of hardware
-// state therefore survive from the previous run and must be handled explicitly,
-// otherwise a second test in the same session is silently wrong or hangs:
-//
-//  1. aer_decoder parks in END_E with EPOCH_DONE high once an epoch completes
-//     (aer_decoder.v: `END_E: next_state <= STOP ? IDLE : ...`, and with
-//     N_EPOCHS=1 the epochs_target arm keeps it there). NEW_EPOCH is ignored in
-//     that state, so a fresh run would see EPOCH_DONE already set and "finish"
-//     instantly. => reckon_bringup() strobes STOP first.
-//  2. fill_cnt_q / consumed_q are free-running counters cleared only by
-//     acc_rst_ni (stream_ctrl_fsm2.sv:144-156). Starting the SW counters at 0
-//     makes grant_half() wait for a match that never happens => hang.
-//     => we LATCH them instead of assuming zero.
-//  3. underrun_q / overrun_q are sticky and likewise survive. A run after a run
-//     that underran would inherit the flag. => we latch a baseline and report
-//     the flags relative to it.
-//
-// out_reg[7] is write-only, so the SW shadow cannot be recovered by reading it.
-// reckon_bringup() writes a known value (all fill_tgl low) to re-synchronise the
-// shadow; after a clean N_HALVES_TOTAL run the toggles are already back to zero,
-// so no spurious fill edge is generated. If ownership is still dirty we say so
-// and refuse to start rather than produce a meaningless measurement.
+// Warm restart: reckon.py start reloads the ELF without resetting the SoC, so
+// three pieces of hardware state survive the previous run, and
+// reckon_bringup() handles them:
+//  1. the decoder parks in END_E with EPOCH_DONE high: it is sent STOP first;
+//  2. fill_cnt and consumed are free-running counters: they are latched, not
+//     assumed to be zero;
+//  3. underrun and overrun are sticky: a baseline is latched and the flags are
+//     reported relative to it.
+// out_reg[7] is write-only, so its shadow is re-synchronised by writing a known
+// value; if half ownership is still dirty, the run refuses to start.
 
 #pragma once
 
@@ -153,14 +137,12 @@ static inline reckon_status_t reckon_status(void) {
 // ---------------------------------------------------------------------------
 // Telemetry: uncached scratch registers + UART step announcements
 // ---------------------------------------------------------------------------
-// Reading variables out of DRAM over JTAG is unreliable (DRAM is cacheable and
-// the debug module bypasses the cache), so every number this test wants to
-// publish goes to a Cheshire scratch register, which is plain MMIO and always
-// coherent. Slot map, kept byte-compatible with util/reckon/reckon.py:
+// Every number a test publishes goes to a Cheshire scratch register, plain MMIO
+// that JTAG can read. The slot map util/reckon/reckon.py reads:
 //
 //   s0 0x03000000  cycles of ONE half-fill
 //   s1 0x03000004  epoch duration (NEW_EPOCH -> EPOCH_DONE)
-//   s2 0x03000008  *** RESERVED - DO NOT USE ***
+//   s2 0x03000008  reserved: crt0.S _exit writes (main_ret << 1) | 1 here
 //   s3 0x0300000c  step marker (RECKON_STEP_*)
 //   s4 0x03000010  consume interval, half 0
 //   s5 0x03000014  consume interval, half 1
@@ -171,14 +153,7 @@ static inline reckon_status_t reckon_status(void) {
 //   sA 0x03000028  stream_status latched at BRING-UP (the inherited baseline)
 //   sB 0x0300002c  stream_status at EPOCH_DONE
 //
-// sA exists because underrun_q/overrun_q are sticky across runs and the
-// counters free-run: comparing sB against sA is what tells you whether a flag
-// belongs to this run or was inherited, without needing the UART.
-//
-// s2 is reserved because crt0.S `_exit` writes (main_ret << 1) | 1 there after
-// main returns (sw/lib/crt0.S:125-129). Anything parked in s2 reads back as 1
-// over JTAG. That - not a broken clint_get_core_freq() - is why the previous
-// harness saw "1 Hz": the frequency was fine, the slot was overwritten.
+// sB against sA tells whether a flag belongs to this run or was inherited.
 #define RK_SCRATCH(n)  ((volatile uint32_t *)(0x03000000ull + 4ull * (n)))
 
 #define RK_S_FILL_ONE    0u
@@ -197,10 +172,8 @@ static inline void rk_publish(unsigned slot, uint32_t v) {
     fence();
 }
 
-// Step codes. The last two keep the values util/reckon/reckon.py and
-// README.md §6 already document (B00B0001 = in the streaming loop,
-// B00B0002 = EPOCH_DONE); the earlier ones are overwritten as the run progresses,
-// so a hang leaves the marker of the step it died in.
+// Step codes (README.md §6). Each overwrites the previous one on scratch3, so a
+// hang leaves the marker of the step it died in.
 typedef enum {
     RECKON_STEP_BOOT    = 0xB00B0010u,
     RECKON_STEP_BRINGUP = 0xB00B0011u,
@@ -211,10 +184,8 @@ typedef enum {
     RECKON_STEP_ERROR   = 0xB00B00EEu,
 } reckon_step_t;
 
-// Announce a step on the UART and on scratch3. NEVER call this inside a timed
-// window: a printf + flush costs ~4 ms, which is longer than ReckOn takes to
-// eat a half, and it is exactly what once set the sticky underrun flag on the
-// first handover (README.md §3.4).
+// Announce a step on the UART and on scratch3. Never inside a timed window: a
+// printf + flush costs ~4 ms, longer than ReckOn takes to consume a half.
 static inline void reckon_step(reckon_step_t code, const char *msg) {
     rk_publish(RK_S_STEP, (uint32_t)code);
     printf("[STEP %08X] %s\n", (uint32_t)code, msg);
@@ -272,9 +243,8 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 //   followed by `num_write` 32-bit data words, MSB first.
 //   Each cfg register occupies exactly one data word (no address auto-increment),
 //   so multi-register programming = one full frame per register.
-// ReckOn's SPI slave takes CS0 (spi_cs_soc[0]): the active-low chip select
-// resynchronises its frame counter on every transaction, so a misaligned frame
-// can no longer desync every following one.
+// ReckOn's SPI slave takes CS0 (spi_cs_soc[0]); the chip select resynchronises
+// its frame counter on every transaction.
 #define RECKON_SPI_CSID  0u
 
 #define RECKON_SPI_CODE_CFG      0x0u
@@ -291,19 +261,14 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 #define RECKON_TICK_PERIOD  15u  // clk15 cycles per algorithmic tick
 #define RECKON_LABEL_DELAY  10u  // ticks
 
-// Bisection knob: 0 = program only mode/config registers (proven cfg_write
-// path), skip neuron-memory + weight SRAM writes. Those multi-word frames are
-// the only unverified code and are a prime suspect for desyncing the SPI slave.
-// Weights are NOT needed for TIME_TICK liveness or for any transport
-// measurement, but while this is 0 `infer_count` is NOT meaningful: the network
-// runs without computing anything sensible. Turning it to 1 is the next
-// substantial work block.
+// 0 = program only the mode/config registers and skip the neuron memory and the
+// weight SRAMs. The transport does not need them, but while this is 0
+// `infer_count` is not meaningful.
 #define RECKON_PROGRAM_WEIGHTS  0
 
 #define RK_MAX(a, b)  (((a) > (b)) ? (a) : (b))
-// NOTE: faithful port of Barocci's CEIL macro - it returns n or n+1 (it does
-// NOT divide by m). Kept identical so the num_write geometry matches the
-// working firmware.
+// Barocci's CEIL macro as it is: it returns n or n+1 and does not divide by m.
+// Kept identical so the num_write geometry matches the working firmware.
 #define RK_CEIL(n, m)  ((((n) % (m)) != 0) ? ((n) + 1) : (n))
 
 // One SPI_slave frame: a 32-bit command/address word followed by `ndata` 32-bit
@@ -484,8 +449,8 @@ static inline int reckon_check_version(void) {
     return 0;
 }
 
-// STEP 1. SPI config, decoder reset and baseline latch. See the warm-restart
-// contract at the top of this file for why the last two exist.
+// STEP 1. SPI config, decoder reset and baseline latch (warm restart: see the
+// top of this file).
 static inline int reckon_bringup(const reckon_clocks_t *clk, reckon_baseline_t *base) {
     if (reckon_spi_configure(clk->core_freq)) {
         reckon_fail("ReckOn SPI bring-up failed");
@@ -493,9 +458,8 @@ static inline int reckon_bringup(const reckon_clocks_t *clk, reckon_baseline_t *
     }
 
     // Re-synchronise the shadow of the write-only out_reg[7]: all fill_tgl low,
-    // exhausted low, STOP low. After a clean run that completed an even number
-    // of alternating half grants the toggles are already zero, so this generates
-    // no fill edge; the owner check below catches the case where it did.
+    // exhausted low, STOP low. After a clean run the toggles are already zero, so
+    // this generates no fill edge; the owner check below catches it if it does.
     base->shadow = 0u;
     reckon_wr(OUT_REG7_STREAM_CTRL, base->shadow);
 
@@ -505,9 +469,7 @@ static inline int reckon_bringup(const reckon_clocks_t *clk, reckon_baseline_t *
     reckon_wr(OUT_REG7_STREAM_CTRL, base->shadow | (1u << SC_STOP_BIT));
     reckon_wr(OUT_REG7_STREAM_CTRL, base->shadow);
 
-    // Wait for EPOCH_DONE to drop, bounded: if the decoder was stuck somewhere
-    // STOP is not honoured from (only END_E goes to IDLE), say so instead of
-    // spinning forever.
+    // Wait for EPOCH_DONE to drop, bounded: STOP only works from END_E.
     uint64_t deadline = get_mcycle() + 10ull * clk->core_freq / 1000ull;  // 10 ms
     while (reckon_rd(IN_REG2_EPOCH_DONE) & 1u) {
         if (get_mcycle() > deadline) {

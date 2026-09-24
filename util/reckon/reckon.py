@@ -13,7 +13,8 @@ core in the store (README.md section 5.1).
     reckon.py build           the firmware ELFs and the dataset image
     reckon.py sync            ship them, build reckon_feed on the board
     reckon.py load            the PS configures the PL
-    reckon.py probe           check that PS 0xA000_0000 is CVA6 0x8000_0000
+    reckon.py probe_ps        the PS writes a word at 0xA000_0000, reads it back
+    reckon.py probe_cva6      the CVA6 reads the same word at 0x8000_0000
     reckon.py feed            one handover
     reckon.py start           load and start the firmware over JTAG
     reckon.py ack             which handover the firmware acknowledged
@@ -30,6 +31,7 @@ the password in config.py.
 import argparse
 import hashlib
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -229,14 +231,19 @@ class Jtag:
         die("OpenOCD did not open port %d - see %s/openocd.log"
             % (port, config.OUT_DIR))
 
-    def gdb(self, elf, *commands):
-        """One batch GDB session; each element becomes an -ex argument."""
-        argv = [config.GDB, str(elf), "-batch",
-                "-ex", "target extended-remote localhost:3333"]
+    def gdb(self, elf, *commands, capture=False):
+        """One batch GDB session; each element becomes an -ex argument.
+
+        The ELF is what `load` writes; reading memory needs none. With
+        capture=True the output is returned instead of printed.
+        """
+        argv = [config.GDB] + ([str(elf)] if elf else []) + [
+            "-batch", "-ex", "target extended-remote localhost:3333"]
         for command in commands:
             argv += ["-ex", command]
         argv += ["-ex", "detach", "-ex", "quit"]
-        return subprocess.run(argv, env=clean_env())
+        return subprocess.run(argv, env=clean_env(), text=True,
+                              capture_output=capture)
 
 
 def echo(text):
@@ -384,20 +391,49 @@ def cmd_load(args, board):
                   % shlex.quote(config.BIT.name)).returncode != 0:
         die("PL configuration failed, before anything touched the aperture.\n"
             "  cat /sys/class/fpga_manager/fpga0/state")
-    print("\nNext: util/reckon/reckon.py probe, or feed")
+    print("\nNext: util/reckon/reckon.py probe_ps, or feed")
     return 0
 
 
-def cmd_probe(args, board):
-    """Write one word from the PS and read it back."""
+# The word `reckon_feed --probe` writes, and where the CVA6 must find it.
+PROBE_PATTERN = 0xC0FFEE01
+PROBE_CVA6 = 0x80000000
+
+
+def cmd_probe_ps(args, board):
+    """The PS writes one word at 0xA0000000 and reads it back."""
     board.check_link()
-    say("Aliasing probe on the PS")
+    say("Aliasing probe, PS side: write at 0xA0000000")
     done = board.sudo("./reckon_feed --probe")
     if done.returncode == 0:
-        # The PS has seen its own write; the other side of the alias is what a
-        # run reads back at CVA6 0x80000000.
-        print("\nNext: util/reckon/reckon.py feed")
+        # The PS has seen its own write; the other side of the alias is the
+        # CVA6 at 0x80000000.
+        print("\nNext: util/reckon/reckon.py probe_cva6")
     return done.returncode
+
+
+def cmd_probe_cva6(args, board):
+    """The CVA6 reads over JTAG the word probe_ps wrote: the same DDR4 cell."""
+    say("Aliasing probe, CVA6 side: read 0x%08X over JTAG" % PROBE_CVA6)
+    with Jtag() as jtag:
+        # Attaching halts the core; the resume lets it run again, as in status.
+        done = jtag.gdb(None, "monitor mdw 0x%08x" % PROBE_CVA6, "monitor resume",
+                        capture=True)
+    found = re.search(r"^0x%08x:\s+([0-9a-f]{8})" % PROBE_CVA6,
+                      done.stdout + done.stderr, re.M)
+    if not found:
+        print(done.stdout + done.stderr)
+        die("0x%08X could not be read over JTAG" % PROBE_CVA6)
+    # Only the word read back: the rest is GDB attaching without a program.
+    print(found.group(0).strip())
+    seen = int(found.group(1), 16)
+    if seen != PROBE_PATTERN:
+        die("\nCVA6 0x%08X reads %08X, not the %08X probe_ps wrote: MISMATCH"
+            % (PROBE_CVA6, seen, PROBE_PATTERN))
+    print("\nCVA6 0x%08X reads %08X, the word the PS wrote at 0xA0000000: "
+          "the same cell" % (PROBE_CVA6, seen))
+    print("\nNext: util/reckon/reckon.py feed")
+    return 0
 
 
 def cmd_feed(args, board):
@@ -517,7 +553,8 @@ def cmd_all(args, board):
 
 
 COMMANDS = {
-    "build": cmd_build, "sync": cmd_sync, "load": cmd_load, "probe": cmd_probe,
+    "build": cmd_build, "sync": cmd_sync, "load": cmd_load,
+    "probe_ps": cmd_probe_ps, "probe_cva6": cmd_probe_cva6,
     "feed": cmd_feed, "ack": cmd_ack, "start": cmd_start, "loop": cmd_loop,
     "status": cmd_loop, "all": cmd_all,
 }

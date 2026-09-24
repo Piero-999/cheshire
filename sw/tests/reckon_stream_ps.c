@@ -1,27 +1,15 @@
-// DDR4 -> BRAM -> ReckOn streaming, with the DATASET SUPPLIED BY THE PS.
+// DDR4 -> BRAM -> ReckOn streaming, with the dataset written by the PS.
 //
-// This is the last development step of the project: STEP 2 no longer builds
-// the samples on this core, it waits for the PS to have written them into PL DDR4
-// over M_AXI_HPM0_FPD and validates the handover. Everything else - bring-up,
-// double-buffered streaming, measurement - is byte-for-byte the code the other two
-// tests run, so the numbers stay comparable across the three variants.
-//
-// Differences from reckon_stream_idma.c, and only these:
+// The same code as reckon_stream_idma.c except for STEP 2, which waits for the PS
+// handover and validates it instead of building the samples here:
 //   * RECKON_DATA_FROM_PS = 1 -> reckon_wait_ddr_from_ps() instead of
-//     reckon_prepare_ddr(); the reference dataset is no longer linked in at all,
-//     which also takes ~42 KiB of .rodata out of the image.
+//     reckon_prepare_ddr(); the reference dataset is not linked in (~42 KiB less);
 //   * reckon_ps_ack() mirrors the outcome back into the mailbox at the end.
-// The transport is the iDMA, i.e. the production path (README.md §4.3).
-//
-// THE ONE THING THAT TRIPS PEOPLE UP: the PS and this core see the same DDR4
-// cells at addresses 0x2000_0000 apart. PS 0xA000_0000 == CVA6 0x8000_0000. See
-// the header comment in sw/include/reckon/reckon_ps_mbox.h for why.
+// PS 0xA000_0000 == CVA6 0x8000_0000: see reckon_ps_mbox.h.
 //
 // Normal flow (the PS writes first, then the ELF runs):
 //     PS        : util/reckon/reckon.py feed   (reckon_feed, on the board)
 //     dev host  : util/reckon/reckon.py start
-// Both directions of the handshake tolerate the other order too, as long as the
-// wait fits inside RECKON_PS_WAIT_TIMEOUT_MS and the JTAG run window (PS_SLEEP_MS).
 
 #define RECKON_DATA_FROM_PS 1  // must precede reckon_stream.h
 
@@ -61,9 +49,7 @@ int main(void) {
     reckon_step(RECKON_STEP_BRINGUP, "BRING UP RECKON");
     if (reckon_bringup(&clk, &base)) return 1;
 
-    // STEP 2 - TAKE THE DATA FROM THE PS. Outside every measurement window, same
-    //          as the placeholder it replaces, so no transport or consume number
-    //          moves because of it.
+    // STEP 2 - TAKE THE DATA FROM THE PS, outside every measurement window.
     reckon_step(RECKON_STEP_DDR, "TAKE DATA FROM PS");
     if (reckon_wait_ddr_from_ps(&clk, &seq)) {
         reckon_ps_ack(seq, 2, &res);  // tell the producer instead of leaving it polling

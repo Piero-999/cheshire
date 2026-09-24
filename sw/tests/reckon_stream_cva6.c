@@ -1,24 +1,10 @@
 // DDR4 -> BRAM -> ReckOn streaming, transport = CVA6 word-by-word copy.
 //
-// This is the slow reference (Option A). It exists to be compared against
-// reckon_stream_idma.c under identical instrumentation; the two files differ
-// only in reckon_transport_copy() below.
-//
-// Why it is slow, measured at 91.79 cycles per 32-bit word:
-//   * Nothing is cacheable in this bitstream. cheshire_soc.sv selects
-//     gen_cva6_noCache_cfg(), which sets NrCachedRegionRules = 0, so
-//     is_inside_cacheable_regions() is false for every address: the D$ never
-//     allocates, the I$ never allocates either (cva6_icache.sv:330), and even
-//     the instructions of this loop are re-fetched from DDR4 every iteration.
-//   * The CVA6 can therefore never burst. Uncached accesses are single-beat
-//     AXI transactions, one per store.
-//   * The load and the store cannot overlap. Both go through the same bypass
-//     axi_adapter, which refuses to issue a read while any write is still
-//     without its B response (axi_adapter.sv:228-232), so each iteration pays a
-//     full BRAM write round-trip plus a full DDR4 read round-trip, serialised.
-//
-// The iDMA is a separate AXI master that bursts and does not alternate
-// read/write on one adapter, which is why it reaches ~1.04 cycles per word.
+// The slow reference, compared with reckon_stream_idma.c under the same
+// instrumentation: the two files differ only in reckon_transport_copy() below.
+// Measured at 91.79 cycles per 32-bit word: nothing is cacheable, so every load
+// and store is a single-beat AXI transaction, and the bypass adapter does not
+// overlap a read with the previous write. The iDMA bursts and reaches ~1.04.
 
 #include <stdint.h>
 
@@ -34,11 +20,8 @@ void reckon_transport_copy(uint64_t dst, uint64_t src, uint64_t nbytes) {
     volatile uint32_t *d = (volatile uint32_t *)(uintptr_t)dst;
     volatile uint32_t *s = (volatile uint32_t *)(uintptr_t)src;
     unsigned nwords = (unsigned)(nbytes / 4u);
-    // Kept as an explicit volatile 32-bit loop with an `unsigned` induction
-    // variable: this is the transport under measurement, so the compiler must
-    // neither widen it to 64-bit accesses nor unroll it, and the loop body must
-    // stay the same length as the one the 91.79 cycles/word figure was measured
-    // on - with an uncacheable I$ every extra instruction is another DDR4 read.
+    // An explicit volatile 32-bit loop, kept as it was measured: the compiler must
+    // not widen or unroll it, and with no I$ every extra instruction is a DDR4 read.
     for (unsigned i = 0; i < nwords; i++)
         d[i] = s[i];
 }
@@ -63,8 +46,7 @@ int main(void) {
     reckon_step(RECKON_STEP_BRINGUP, "BRING UP RECKON");
     if (reckon_bringup(&clk, &base)) return 1;
 
-    // STEP 2 - PREPARE DATA IN DDR4. Outside every measurement window: the PS
-    //          will own this step eventually, so it must not touch the numbers.
+    // STEP 2 - PREPARE DATA IN DDR4, outside every measurement window.
     reckon_step(RECKON_STEP_DDR, "PREPARE DATA IN DDR4");
     if (reckon_prepare_ddr()) return 1;
 

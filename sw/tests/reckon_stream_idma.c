@@ -1,17 +1,9 @@
 // DDR4 -> BRAM -> ReckOn streaming, transport = iDMA block copy.
 //
-// This is the production transport (Option B). It differs from
-// reckon_stream_cva6.c only in reckon_transport_copy() below.
-//
-// The iDMA is a separate AXI master: it issues bursts instead of one
-// single-beat transaction per 32-bit store, and its read and write channels are
-// independent, so it does not pay the read-blocked-by-outstanding-write penalty
-// the CVA6 bypass path pays (axi_adapter.sv:228-232). Measured ~1.04 cycles per
-// word against the CVA6's 91.79.
-//
-// sys_dma_blk_memcpy() blocks until done_id == tf_id, i.e. until the transfer
-// has actually completed on the AXI side. That is a real completion wait, not
-// an ordering barrier like fence() on posted stores.
+// The production transport. It differs from reckon_stream_cva6.c only in
+// reckon_transport_copy() below: the iDMA is a separate AXI master that bursts,
+// ~1.04 cycles per word against the CVA6's 91.79. sys_dma_blk_memcpy() returns
+// when the transfer has completed on the AXI side.
 
 #include <stdint.h>
 
@@ -48,8 +40,7 @@ int main(void) {
     reckon_step(RECKON_STEP_BRINGUP, "BRING UP RECKON");
     if (reckon_bringup(&clk, &base)) return 1;
 
-    // STEP 2 - PREPARE DATA IN DDR4. Outside every measurement window: the PS
-    //          will own this step eventually, so it must not touch the numbers.
+    // STEP 2 - PREPARE DATA IN DDR4, outside every measurement window.
     reckon_step(RECKON_STEP_DDR, "PREPARE DATA IN DDR4");
     if (reckon_prepare_ddr()) return 1;
 

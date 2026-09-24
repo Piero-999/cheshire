@@ -1,31 +1,15 @@
 // reckon_feed - push the training dataset from PS Linux into the PL DDR4, then
 // hand it over to the CVA6 firmware and wait for the outcome.
 //
-// Runs on the ZCU102 PS (aarch64, PetaLinux). Counterpart of
-// sw/tests/reckon_stream_ps.c on the RISC-V side; the shared contract - the
-// address offset, the mailbox layout, the checksum, the dataset file format - is
-// in reckon_ps_mbox.h, which both sides compile.
+// Runs on the ZCU102 PS (aarch64). Counterpart of sw/tests/reckon_stream_ps*.c;
+// the shared contract (addresses, mailbox, checksum, dataset file) is
+// reckon_ps_mbox.h.
 //
-// HOW THE DATA GETS THERE
-// ----------------------
-// The Zynq master M_AXI_HPM0_FPD is bridged into the Cheshire AXI crossbar in
-// hw/axi_reckon/rtl/xilinx_zcu102_reckon_chs_top.sv (id 16->2, then 128->64 bit).
-// Cheshire decodes 0x8000_0000..0x1_0000_0000 to the DDR4 port, so the whole
-// 0xA000_0000 aperture is DRAM; the PL DDR4 is 512 MiB and its wrapper truncates
-// to addr[28:0], so 0xA000_0000 and 0x8000_0000 land on the same cell.
-//
-//     PS 0xA000_0000  ==  CVA6 0x8000_0000        (offset 0x2000_0000)
-//
-// TWO CONSTRAINTS
-// ---------------
-//  1. PROGRAM THE PL FIRST - reckon_load.py, right here on the PS. maxihpm0_fpd_aclk
-//     comes from the PL clk_wiz: with an unprogrammed fabric that clock does not
-//     run, the write never gets a response, and the GP master has no timeout - the
-//     core hangs in the store, not in a signal handler. The liveness probe below
-//     turns that into a diagnosis instead of a frozen shell, but it cannot undo it.
-//  2. NO memcpy() ONTO THE APERTURE. /dev/mem with O_SYNC maps Device-nGnRnE
-//     memory, where unaligned accesses fault and libc's memcpy is free to emit
-//     them. Everything below moves data with aligned 32-bit stores on purpose.
+// Two constraints:
+//  1. The PL must be programmed first (reckon_load.py): with an unprogrammed
+//     fabric a store to the aperture never completes and the core hangs in it.
+//  2. No memcpy() onto the aperture: it is Device memory, where unaligned
+//     accesses fault. Everything here uses aligned 32-bit accesses.
 //
 // Usage:
 //     reckon_feed [--data FILE] [--seq N] [--verify] [--no-wait]
@@ -51,9 +35,8 @@
 
 #define PROBE_PATTERN  0xC0FFEE01u
 
-// Only used to turn the cycle counts the firmware reports into milliseconds.
-// This is the value the firmware measures against the RTC on every run, not a
-// rounded 50.01: the cycles are the measurement, the milliseconds a convenience.
+// Only to print the firmware's cycle counts in milliseconds: the clock the
+// firmware measures against the RTC.
 #define CORE_MHZ  50.0001
 
 static const char *g_data = "reckon_dataset.bin";
@@ -85,13 +68,12 @@ static void fail(const char *fmt, ...) {
 }
 
 // ---------------------------------------------------------------------------
-// Device-memory accessors. Aligned 32-bit only; see note 2 in the header.
+// Device-memory accessors. Aligned 32-bit only (constraint 2 at the top).
 // ---------------------------------------------------------------------------
 static inline void wr32(volatile uint32_t *p, uint32_t v) { *p = v; }
 static inline uint32_t rd32(const volatile uint32_t *p) { return *p; }
 
-// A read-back is the only thing that proves a burst of posted writes has landed;
-// the same rule applies on the RISC-V side (README.md §2.4).
+// A read-back is what proves that posted writes have landed (README.md §2.4).
 static inline void drain(const volatile uint32_t *p) {
     __sync_synchronize();
     (void)rd32(p);
@@ -101,14 +83,10 @@ static inline void drain(const volatile uint32_t *p) {
 // ---------------------------------------------------------------------------
 // Liveness probe: turn a silent hang into a diagnosis
 // ---------------------------------------------------------------------------
-// A write to the aperture cannot fail cleanly. If the PL is unconfigured its
-// clk_wiz is dead, and if the DDR4 MIG has not finished calibrating its AXI shim
-// holds ready low: either way the store never completes, there is no timeout on
-// the GP master and no signal is raised - the core just stops retiring.
-//
-// So the probe runs in a child process: if it does not come back in time, the
-// parent reports what happened instead of hanging with it. The child stays
-// wedged and that CPU is lost until the board is rebooted.
+// With the PL unconfigured, or the DDR4 still calibrating, a store to the
+// aperture never completes and nothing times out. So the probe runs in a child
+// process: if it does not come back, the parent reports it; the child stays
+// stuck until the board is rebooted.
 static int probe_with_timeout(volatile uint32_t *cell, uint32_t pattern, double timeout_s) {
     pid_t pid = fork();
     if (pid < 0) die("fork for the liveness probe");
@@ -240,8 +218,6 @@ int main(int argc, char **argv) {
     if (fd < 0) die("open /dev/mem (run as root)");
 
     // O_SYNC gives Device-nGnRnE: strongly ordered, no gathering, no caching.
-    // This removes any need for cache maintenance against the CVA6, which has no
-    // cacheable regions either.
     volatile uint32_t *ap = mmap(NULL, RK_PS_MAP_BYTES, PROT_READ | PROT_WRITE,
                                  MAP_SHARED, fd, (off_t)RK_PS_APERTURE_BASE);
     if (ap == MAP_FAILED) die("mmap of the HPM0 aperture");
@@ -256,7 +232,7 @@ int main(int argc, char **argv) {
            (unsigned long long)RK_PS_MAP_BYTES >> 10);
 
     // -----------------------------------------------------------------------
-    // --probe: the Phase 1 aliasing check, no dataset involved
+    // --probe: the aliasing check, no dataset involved
     // -----------------------------------------------------------------------
     if (g_probe) {
         probe_or_explain(payload, PROBE_PATTERN);
@@ -265,21 +241,15 @@ int main(int argc, char **argv) {
                PROBE_PATTERN, (unsigned long long)RK_PS_APERTURE_BASE, got,
                got == PROBE_PATTERN ? "PS side OK" : "MISMATCH");
         printf("           now confirm from the dev host that CVA6 0x%08llX reads %08X:\n"
-               "             monitor mdw 0x%08llX  (GDB over JTAG)\n",
-               (unsigned long long)RK_CVA6_DRAM_BASE, PROBE_PATTERN,
-               (unsigned long long)RK_CVA6_DRAM_BASE);
+               "             util/reckon/reckon.py probe_cva6\n",
+               (unsigned long long)RK_CVA6_DRAM_BASE, PROBE_PATTERN);
         return got == PROBE_PATTERN ? 0 : 1;
     }
 
     // -----------------------------------------------------------------------
     // --status: dump the mailbox after a run, without touching anything
     // -----------------------------------------------------------------------
-    // This exists because there is no other safe way to read it from the PS.
-    // devmem is not installed on this image, and a Python mmap slice is worse
-    // than useless: the aperture is Device-nGnRnE, so the bulk memcpy behind
-    // m[0:64] issues unaligned / multi-register loads and returns a scrambled
-    // mix of neighbouring words. Every read below is a single aligned 32-bit
-    // volatile load, which is the only access width this mapping supports.
+    // Aligned 32-bit reads only (README.md §5.3: no devmem, no Python mmap).
     if (g_status) {
         static const char *nm[RK_MBOX_WORDS] = {
             [RK_MBOX_W_MAGIC]      = "MAGIC",
@@ -323,9 +293,7 @@ int main(int argc, char **argv) {
                    (status >> 5) & 1u, (status >> 6) & 1u);
             printf("           epoch cycles %u (%.2f ms at %g MHz)\n",
                    epoch, epoch / (CORE_MHZ * 1e3), CORE_MHZ);
-            // The handover check must stay a rounding error next to the epoch it
-            // guards. If this ever climbs back to a sizeable fraction, someone
-            // rebuilt with -DRECKON_PS_FULL_CHECKSUM=1.
+            // Sampled, it stays under 1% of the epoch; the full scan is ~240 ms.
             if (chkcy)
                 printf("           handover check %u cycles (%.2f ms, %.1f%% of the epoch)\n",
                        chkcy, chkcy / (CORE_MHZ * 1e3),
@@ -335,9 +303,7 @@ int main(int argc, char **argv) {
                    ack, RK_MBOX_ACK_BASE >> 16);
         }
 
-        // The check that makes --no-wait safe. Without it, a run that consumed a
-        // stale handover is indistinguishable from a healthy one: same rc, same
-        // counters, same checksum - only the sequence number differs.
+        // Only the sequence number tells this run's ack from a stale one.
         if (g_expect_seq) {
             int ok = ((ack & 0xFFFF0000u) == RK_MBOX_ACK_BASE) && (aseq == g_expect_seq);
             printf("           expected seq %u -> %s\n", g_expect_seq,
@@ -367,16 +333,10 @@ int main(int argc, char **argv) {
            g_data, hdr.n_halves, hdr.samples_per_half, hdr.payload_bytes >> 10,
            hdr.checksum);
 
-    // Touch one word before committing to 512 KiB of stores: if the fabric is
-    // not there, this is where it is reported, rather than halfway through the
-    // payload.
+    // Touch one word before the 512 KiB of stores.
     probe_or_explain(&mb[RK_MBOX_W_PROBE], PROBE_PATTERN);
 
-    // A magic still standing means the PREVIOUS handover was never consumed -
-    // the firmware timed out, or was never started. The next run to reach STEP 2
-    // would consume it and stream the old buffer while reporting success: the
-    // checksum cannot catch that, since payload and checksum both come from the
-    // same stale feed. Only the sequence number distinguishes them.
+    // A magic still standing means the previous handover was never consumed.
     uint32_t stale = rd32(&mb[RK_MBOX_W_MAGIC]);
     if (stale == RK_MBOX_MAGIC) {
         fprintf(stderr,
@@ -386,9 +346,7 @@ int main(int argc, char **argv) {
             rd32(&mb[RK_MBOX_W_SEQ]), g_seq);
     }
 
-    // Retract any standing handover before touching the payload: for the whole
-    // time we are rewriting those 512 KiB, the old magic would otherwise still
-    // be advertising a buffer that is being overwritten underneath a consumer.
+    // Retract any standing handover before rewriting the payload under it.
     wr32(&mb[RK_MBOX_W_MAGIC], 0);
     drain(&mb[RK_MBOX_W_MAGIC]);
 
@@ -437,10 +395,8 @@ int main(int argc, char **argv) {
     wr32(&mb[RK_MBOX_W_SAMPLES],    hdr.samples_per_half);
     wr32(&mb[RK_MBOX_W_HALF_WORDS], hdr.half_words);
     wr32(&mb[RK_MBOX_W_CHECKSUM],   hdr.checksum);
-    // The sum the firmware will actually compare against. Computed here over the
-    // source buffer in ordinary cached RAM - microseconds - so that the CVA6 can
-    // do its side with 513 uncached reads instead of 131072. rk_sum32_sampled in
-    // reckon_ps_mbox.h documents what that trades away.
+    // The sum the firmware compares against (rk_sum32_sampled), computed here
+    // over the source buffer in cached RAM.
     wr32(&mb[RK_MBOX_W_SAMPLE_SUM], rk_sum32_sampled(src, nwords));
     drain(&mb[RK_MBOX_W_SAMPLE_SUM]);
 
@@ -464,7 +420,8 @@ int main(int argc, char **argv) {
     // firmware mirrors the outcome into the mailbox for us.
     // -----------------------------------------------------------------------
     printf("waiting  : for the CVA6 ack, up to %.0f s "
-           "(start the ELF on the dev host now if you have not)\n", g_timeout);
+           "(a loop session answers by itself; otherwise start the firmware now)\n",
+           g_timeout);
     fflush(stdout);
 
     t0 = now_s();

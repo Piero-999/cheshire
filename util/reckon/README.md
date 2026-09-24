@@ -11,7 +11,7 @@ machinery, which produced the evidence in the documentation and takes no part in
 
 | file | what |
 |---|---|
-| `reckon.py` | the whole flow: `build sync load probe feed start ack loop status all`. `--help` lists them |
+| `reckon.py` | the whole flow: `build sync load probe_ps probe_cva6 feed start ack loop status all`. `--help` lists them |
 | `config.py` | paths, defaults, and the board's address and credentials; everything overridable from the environment |
 | `gen_ps_dataset.py` | emits `ps/reckon_dataset.bin`, the DDR4 image the PS writes; `--break-eos` injects the fault of the documentation |
 | `ps/` | the PS-side (aarch64) producer: `reckon_feed.c`, `reckon_load.py`, the dataset image |

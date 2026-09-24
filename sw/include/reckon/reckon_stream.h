@@ -15,19 +15,13 @@
 //     void reckon_transport_copy(uint64_t dst, uint64_t src, uint64_t nbytes);
 //     const char *const reckon_transport_name;
 //
-// MEASUREMENT DISCIPLINE
-// ----------------------
-//  * No printf and no UART flush ever happens between NEW_EPOCH and EPOCH_DONE.
-//    A printf + flush costs ~4 ms, longer than ReckOn takes to eat a half at
-//    BATCH_SIZE=1 (1.30 ms); since underrun_q is sticky, one late handover
-//    poisons the flag for the whole run (README.md §3.4).
-//  * No telemetry is written to the scratch registers inside the epoch either.
-//    Everything is accumulated in the (stack-resident) context and published in
-//    reckon_report(), after the window is closed.
-//  * STEP 2 is outside every window on purpose: filling DDR4 is a stand-in for
-//    what the PS will do later, so it must never appear in the numbers.
-//  * All streaming state lives in a caller-owned struct rather than in globals,
-//    so nothing here depends on .bss having been zeroed (README.md §4.1).
+// Measurement discipline:
+//  * between NEW_EPOCH and EPOCH_DONE nothing is printed and nothing is written
+//    to the scratch registers (a printf + flush costs ~4 ms, more than ReckOn
+//    takes per half); reckon_report() publishes everything afterwards;
+//  * STEP 2 is outside every window;
+//  * the streaming state lives in a caller-owned struct, not in globals, so
+//    nothing depends on .bss having been zeroed (README.md §4.1).
 
 #pragma once
 
@@ -59,15 +53,10 @@
 #define N_HALVES_TOTAL  4u  // total BRAM halves streamed per run
 
 // Samples packed into one BRAM half == BATCH_SIZE (aer_decoder leaves END_S for
-// END_B when cnt_sample_batch == BATCH_SIZE). This is the load-regime selector:
-//   1  = plumbing test. A half is 128 KiB but a sample is ~3.6 KiB, so ReckOn
-//        stops at the EOS after ~931 words and 97% of a CVA6 copy is padding it
-//        never reads.
-//   37 = FULL-BRAM test. The 931/931/683/932 cycle sums to 3477 words per 4
-//        samples, so 37 samples are 9 full cycles (31293) plus one more (<=932)
-//        = 32225 <= HALF_WORDS whatever the starting offset, leaving >= 543
-//        padding words (97.6-98.3% full). 38 would need up to 33156 > HALF_WORDS
-//        and would truncate some halves and not others.
+// END_B when cnt_sample_batch == BATCH_SIZE):
+//   1  = plumbing test: ReckOn stops at the first EOS, ~931 words into the half;
+//   37 = full-BRAM test: the most samples that fit in a half whatever the
+//        starting offset (at most 32225 words, 97.6-98.3% full).
 #define SAMPLES_PER_HALF  37u
 
 // Bounded waits. The hardware handshakes are sub-millisecond; these only exist
@@ -75,11 +64,9 @@
 #define RECKON_GRANT_TIMEOUT_MS  500u
 #define RECKON_EPOCH_TIMEOUT_MS  5000u
 
-// How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only). The
-// intended flow is "PS writes first, then reckon.py start", so the magic is
-// normally already there and this costs nothing. If you want the firmware to sit
-// and wait for the PS instead, raise this AND the JTAG run window (PS_SLEEP_MS),
-// which halts the core when it expires no matter what the firmware is doing.
+// How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only). In the
+// normal flow the PS writes first and the magic is already there. To wait longer,
+// raise the JTAG run window (PS_SLEEP_MS) as well.
 #define RECKON_PS_WAIT_TIMEOUT_MS  5000u
 
 // What each epoch writes into DO_EPROP, ReckOn's 3-bit learning enable. 0 keeps
@@ -102,12 +89,7 @@ extern const char *const reckon_transport_name;
 // STEP 2 - get the dataset into DDR4
 // ---------------------------------------------------------------------------
 #if !RECKON_DATA_FROM_PS
-// OUTSIDE every measurement window, and deliberately so: this is a placeholder
-// for the PS writing the samples into DDR4 over its own AXI master. When that
-// lands, this step disappears from the firmware entirely and the streaming code
-// below is untouched. It is the last development step of the project.
-//
-// Packs SAMPLES_PER_HALF consecutive reference samples back to back starting
+// Outside every measurement window. Packs SAMPLES_PER_HALF consecutive reference samples back to back starting
 // from the global sample index `first` (the pool of REF_N_SAMPLES real samples
 // is cycled), then pads to the half boundary with no-op (code 0) words that
 // ReckOn reads and discards. Returns the number of samples actually packed:
@@ -160,21 +142,14 @@ static inline int reckon_prepare_ddr(void) {
 
 #else  // RECKON_DATA_FROM_PS
 
-// Exhaustive instead of sampled handover check: ~240 ms instead of ~1 ms, only
-// worth it when chasing a suspected single-word corruption. See reckon_ps_mbox.h.
+// Exhaustive instead of sampled handover check: ~240 ms instead of ~1 ms.
 #ifndef RECKON_PS_FULL_CHECKSUM
 #define RECKON_PS_FULL_CHECKSUM 0
 #endif
 
-// The PS wrote the samples over M_AXI_HPM0_FPD; this side only waits for the
-// handover and checks that what landed is what was announced. Still outside every
-// measurement window, exactly like the placeholder it replaces, so the transport
-// and consume numbers stay comparable across the three variants.
-//
-// The producer is util/reckon/ps/reckon_feed.c; the address offset and the
-// mailbox layout are in reckon_ps_mbox.h. Note that neither side needs a cache
-// maintenance operation: nothing is cacheable on this core and the PS maps the
-// aperture as Device memory.
+// The PS wrote the samples (util/reckon/ps/reckon_feed.c; addresses and mailbox
+// in reckon_ps_mbox.h). This side waits for the handover and checks that what
+// landed is what was announced, outside every measurement window.
 static inline volatile uint32_t *rk_mbox(void) {
     return (volatile uint32_t *)RK_MBOX_CVA6_ADDR;
 }
@@ -213,10 +188,8 @@ static inline int reckon_wait_ddr_from_ps(const reckon_clocks_t *clk, uint32_t *
     uint32_t want_sum   = mb[RK_MBOX_W_SAMPLE_SUM];
 #endif
 
-    // Consume-once. The mailbox lives in DRAM and DRAM survives an ELF reload, so
-    // without this a second run would find the previous run's magic and stream a
-    // stale buffer while looking perfectly healthy - the same class of trap as the
-    // free-running fill_cnt/consumed counters (reckon_bringup.h, warm-restart).
+    // Consume-once: the mailbox survives an ELF reload, and the next run must not
+    // find this magic again.
     mb[RK_MBOX_W_MAGIC] = 0;
     fence();
 
@@ -231,11 +204,9 @@ static inline int reckon_wait_ddr_from_ps(const reckon_clocks_t *clk, uint32_t *
     }
 
     // This is what distinguishes "the PS wrote the data" from "the PS wrote the
-    // mailbox" - the failure a wrong aperture offset produces. It samples rather
-    // than scans: see rk_sum32_sampled in reckon_ps_mbox.h for what that trades
-    // away and why. ~1 ms instead of ~240 ms, i.e. it no longer costs more than
-    // the epoch it guards. Still outside every measurement window either way;
-    // never move it inside one.
+    // mailbox", the failure a wrong aperture offset produces. It samples
+    // (rk_sum32_sampled, ~1 ms instead of ~240 ms) and stays outside every
+    // measurement window.
     uint64_t t0 = get_mcycle();
 #if RECKON_PS_FULL_CHECKSUM
     uint32_t got_sum = rk_sum32((const volatile uint32_t *)DRAM_BASE_ADDR,
@@ -247,8 +218,7 @@ static inline int reckon_wait_ddr_from_ps(const reckon_clocks_t *clk, uint32_t *
     const char *how = "sampled";
 #endif
     uint32_t dt = (uint32_t)(get_mcycle() - t0);
-    // Publish it: with no PS console and the UART not always wired, this word is
-    // the only way to see from Linux what the check actually cost.
+    // Published for the PS, which has no other way to see what the check cost.
     mb[RK_MBOX_W_ACK_CHK_CY] = dt;
     fence();
 
@@ -325,16 +295,10 @@ static inline void rk_fill_half(reckon_stream_t *s, unsigned h) {
     uint64_t src = DRAM_BASE_ADDR + s->dram_word_off * 4u;
     reckon_transport_copy(dst, src, HALF_BYTES);
 
-    // The writes above are POSTED: fence() orders them but does NOT guarantee
-    // they reached the BRAM. Without this read-back ReckOn was granted a half
-    // whose data had not landed, decoded garbage (code != 3 -> the READM default
-    // branch) and raced through the half without ever ticking (README.md §2.4).
-    // Reading the LAST word written is a real completion barrier here: the load
-    // is a bypass access, and cva6's axi_adapter refuses to issue a read while
-    // any write has no B response yet (axi_adapter.sv:230), so every preceding
-    // store to this slave must have completed first. Kept on the iDMA path too -
-    // it costs ~90 cycles out of millions and it is the failure this project has
-    // already paid for once.
+    // The writes above are posted: fence() orders them but does not guarantee
+    // they reached the BRAM. Reading back the last word written does, because
+    // cva6's axi_adapter issues no read while a write still lacks its B response.
+    // Without it ReckOn can be granted a half that has not landed (README.md §2.4).
     volatile uint32_t sink = *(volatile uint32_t *)(dst + HALF_BYTES - 4u);
     (void)sink;
     fence();
@@ -499,11 +463,9 @@ static inline void reckon_report(const reckon_result_t *r, const reckon_clocks_t
 }
 
 #if RECKON_DATA_FROM_PS
-// Closes the loop back to the producer. The PS cannot read stream_status itself
-// (HPM0 only reaches the DRAM aperture in this bitstream, not the 0x4000_0000
-// register window), so the outcome is mirrored into the mailbox for it. The
-// status word goes out before the ack word: the ack is what the PS polls on, so
-// everything it will read must already be in place when the ack lands.
+// Mirrors the outcome into the mailbox, since the PS reaches only the DRAM
+// aperture and not the register window. The ack word goes last: it is what the
+// PS polls on.
 static inline void reckon_ps_ack(uint32_t seq, uint32_t rc, const reckon_result_t *r) {
     volatile uint32_t *mb = rk_mbox();
 
