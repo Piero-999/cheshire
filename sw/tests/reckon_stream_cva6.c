@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // DDR4 -> BRAM -> ReckOn streaming, transport = CVA6 word-by-word copy.
 //
 // This is the slow reference (Option A). It exists to be compared against

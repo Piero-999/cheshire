@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // PS <-> CVA6 mailbox in PL DDR4, shared contract between:
 //   * the firmware       sw/tests/reckon_stream_ps.c   (RISC-V, reads the data)
 //   * the PS producer    util/reckon/ps/reckon_feed.c  (aarch64, writes the data)

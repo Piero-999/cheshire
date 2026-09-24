@@ -58,8 +58,6 @@ target/xilinx/scripts/misc
 target/xilinx/releases
 
 # Temporary files
-guides/*
-CLAUDE.md
 work/*
 chs_env/*
 riscv*/*

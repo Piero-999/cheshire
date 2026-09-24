@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // DDR4 -> BRAM -> ReckOn streaming engine, steps 2 and 3 of the flow.
 //
 //     reckon_prepare_ddr()   STEP 2  populate the DDR4 source buffers
@@ -24,14 +20,14 @@
 //  * No printf and no UART flush ever happens between NEW_EPOCH and EPOCH_DONE.
 //    A printf + flush costs ~4 ms, longer than ReckOn takes to eat a half at
 //    BATCH_SIZE=1 (1.30 ms); since underrun_q is sticky, one late handover
-//    poisons the flag for the whole run (LOGBOOK 8.4).
+//    poisons the flag for the whole run (README.md §3.4).
 //  * No telemetry is written to the scratch registers inside the epoch either.
 //    Everything is accumulated in the (stack-resident) context and published in
 //    reckon_report(), after the window is closed.
 //  * STEP 2 is outside every window on purpose: filling DDR4 is a stand-in for
 //    what the PS will do later, so it must never appear in the numbers.
 //  * All streaming state lives in a caller-owned struct rather than in globals,
-//    so nothing here depends on .bss having been zeroed (LOGBOOK 7).
+//    so nothing here depends on .bss having been zeroed (README.md §4.1).
 
 #pragma once
 
@@ -75,14 +71,14 @@
 #define SAMPLES_PER_HALF  37u
 
 // Bounded waits. The hardware handshakes are sub-millisecond; these only exist
-// so a desync reports itself instead of hanging until run_test.sh times out.
+// so a desync reports itself instead of hanging until the JTAG run window ends.
 #define RECKON_GRANT_TIMEOUT_MS  500u
 #define RECKON_EPOCH_TIMEOUT_MS  5000u
 
 // How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only). The
-// intended flow is "PS writes first, then run_test.sh", so the magic is normally
-// already there and this costs nothing. If you want the firmware to sit and wait
-// for the PS instead, raise this AND run_test.sh's sleep window (RUN_SLEEP_MS),
+// intended flow is "PS writes first, then reckon.py start", so the magic is
+// normally already there and this costs nothing. If you want the firmware to sit
+// and wait for the PS instead, raise this AND the JTAG run window (PS_SLEEP_MS),
 // which halts the core when it expires no matter what the firmware is doing.
 #define RECKON_PS_WAIT_TIMEOUT_MS  5000u
 
@@ -173,7 +169,7 @@ static inline int reckon_prepare_ddr(void) {
 // The PS wrote the samples over M_AXI_HPM0_FPD; this side only waits for the
 // handover and checks that what landed is what was announced. Still outside every
 // measurement window, exactly like the placeholder it replaces, so the transport
-// and consume numbers stay comparable with LOGBOOK 8.5/8.7.
+// and consume numbers stay comparable across the three variants.
 //
 // The producer is util/reckon/ps/reckon_feed.c; the address offset and the
 // mailbox layout are in reckon_ps_mbox.h. Note that neither side needs a cache
@@ -332,7 +328,7 @@ static inline void rk_fill_half(reckon_stream_t *s, unsigned h) {
     // The writes above are POSTED: fence() orders them but does NOT guarantee
     // they reached the BRAM. Without this read-back ReckOn was granted a half
     // whose data had not landed, decoded garbage (code != 3 -> the READM default
-    // branch) and raced through the half without ever ticking (LOGBOOK 6).
+    // branch) and raced through the half without ever ticking (README.md §2.4).
     // Reading the LAST word written is a real completion barrier here: the load
     // is a bypass access, and cva6's axi_adapter refuses to issue a read while
     // any write has no B response yet (axi_adapter.sv:230), so every preceding

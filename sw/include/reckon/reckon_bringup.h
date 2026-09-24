@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // ReckOn bring-up: platform map, AXI register file, SPI network programming and
 // the step/telemetry plumbing shared by every streaming test.
 //
@@ -17,7 +13,7 @@
 //
 // WARM-RESTART CONTRACT (why reckon_bringup() is not just "send the SPI config")
 // -----------------------------------------------------------------------------
-// run_test.sh reloads the ELF over JTAG and resumes; it never resets the SoC
+// reckon.py start reloads the ELF over JTAG and resumes; it never resets the SoC
 // (util/openocd.common.tcl has `reset_config none`). Three pieces of hardware
 // state therefore survive from the previous run and must be handled explicitly,
 // otherwise a second test in the same session is silently wrong or hangs:
@@ -160,7 +156,7 @@ static inline reckon_status_t reckon_status(void) {
 // Reading variables out of DRAM over JTAG is unreliable (DRAM is cacheable and
 // the debug module bypasses the cache), so every number this test wants to
 // publish goes to a Cheshire scratch register, which is plain MMIO and always
-// coherent. Slot map, kept byte-compatible with util/reckon/run_test.sh:
+// coherent. Slot map, kept byte-compatible with util/reckon/reckon.py:
 //
 //   s0 0x03000000  cycles of ONE half-fill
 //   s1 0x03000004  epoch duration (NEW_EPOCH -> EPOCH_DONE)
@@ -201,10 +197,10 @@ static inline void rk_publish(unsigned slot, uint32_t v) {
     fence();
 }
 
-// Step codes. The last two keep the values util/reckon/run_test.sh and the
-// LOGBOOK already document (B00B0001 = in the streaming loop, B00B0002 =
-// EPOCH_DONE); the earlier ones are overwritten as the run progresses, so a
-// hang leaves the marker of the step it died in.
+// Step codes. The last two keep the values util/reckon/reckon.py and
+// README.md §6 already document (B00B0001 = in the streaming loop,
+// B00B0002 = EPOCH_DONE); the earlier ones are overwritten as the run progresses,
+// so a hang leaves the marker of the step it died in.
 typedef enum {
     RECKON_STEP_BOOT    = 0xB00B0010u,
     RECKON_STEP_BRINGUP = 0xB00B0011u,
@@ -218,7 +214,7 @@ typedef enum {
 // Announce a step on the UART and on scratch3. NEVER call this inside a timed
 // window: a printf + flush costs ~4 ms, which is longer than ReckOn takes to
 // eat a half, and it is exactly what once set the sticky underrun flag on the
-// first handover (LOGBOOK 8.4).
+// first handover (README.md §3.4).
 static inline void reckon_step(reckon_step_t code, const char *msg) {
     rk_publish(RK_S_STEP, (uint32_t)code);
     printf("[STEP %08X] %s\n", (uint32_t)code, msg);
@@ -278,7 +274,7 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 //   so multi-register programming = one full frame per register.
 // ReckOn's SPI slave takes CS0 (spi_cs_soc[0]): the active-low chip select
 // resynchronises its frame counter on every transaction, so a misaligned frame
-// can no longer desync every following one (LOGBOOK 7).
+// can no longer desync every following one.
 #define RECKON_SPI_CSID  0u
 
 #define RECKON_SPI_CODE_CFG      0x0u
@@ -301,7 +297,7 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 // Weights are NOT needed for TIME_TICK liveness or for any transport
 // measurement, but while this is 0 `infer_count` is NOT meaningful: the network
 // runs without computing anything sensible. Turning it to 1 is the next
-// substantial work block (LOGBOOK 9, open point 1).
+// substantial work block.
 #define RECKON_PROGRAM_WEIGHTS  0
 
 #define RK_MAX(a, b)  (((a) > (b)) ? (a) : (b))

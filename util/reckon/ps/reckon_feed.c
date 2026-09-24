@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // reckon_feed - push the training dataset from PS Linux into the PL DDR4, then
 // hand it over to the CVA6 firmware and wait for the outcome.
 //
@@ -20,8 +16,8 @@
 //
 //     PS 0xA000_0000  ==  CVA6 0x8000_0000        (offset 0x2000_0000)
 //
-// TWO THINGS THAT WILL BITE YOU
-// -----------------------------
+// TWO CONSTRAINTS
+// ---------------
 //  1. PROGRAM THE PL FIRST - reckon_load.py, right here on the PS. maxihpm0_fpd_aclk
 //     comes from the PL clk_wiz: with an unprogrammed fabric that clock does not
 //     run, the write never gets a response, and the GP master has no timeout - the
@@ -55,11 +51,9 @@
 
 #define PROBE_PATTERN  0xC0FFEE01u
 
-// Only used to turn the cycle counts the firmware reports into milliseconds. Use
-// the value LOGBOOK 8.5 measured against the RTC - 50.0001 MHz, from 5 000 513
-// cycles in 100 010 us - and not a rounded 50.01, or the milliseconds printed
-// here will not line up with the ones in the guides. The cycles are the
-// measurement; the milliseconds are a convenience.
+// Only used to turn the cycle counts the firmware reports into milliseconds.
+// This is the value the firmware measures against the RTC on every run, not a
+// rounded 50.01: the cycles are the measurement, the milliseconds a convenience.
 #define CORE_MHZ  50.0001
 
 static const char *g_data = "reckon_dataset.bin";
@@ -97,7 +91,7 @@ static inline void wr32(volatile uint32_t *p, uint32_t v) { *p = v; }
 static inline uint32_t rd32(const volatile uint32_t *p) { return *p; }
 
 // A read-back is the only thing that proves a burst of posted writes has landed;
-// on the RISC-V side the same lesson cost this project a week (LOGBOOK 6).
+// the same rule applies on the RISC-V side (README.md §2.4).
 static inline void drain(const volatile uint32_t *p) {
     __sync_synchronize();
     (void)rd32(p);
@@ -112,10 +106,9 @@ static inline void drain(const volatile uint32_t *p) {
 // holds ready low: either way the store never completes, there is no timeout on
 // the GP master and no signal is raised - the core just stops retiring.
 //
-// So the probe runs in a child process. If it does not come back in time, the
-// parent still can report what happened, which beats a shell that never returns.
-// The child stays wedged: that CPU is lost until the board is rebooted. That is
-// the price of finding out, and it only happens when the flow was violated.
+// So the probe runs in a child process: if it does not come back in time, the
+// parent reports what happened instead of hanging with it. The child stays
+// wedged and that CPU is lost until the board is rebooted.
 static int probe_with_timeout(volatile uint32_t *cell, uint32_t pattern, double timeout_s) {
     pid_t pid = fork();
     if (pid < 0) die("fork for the liveness probe");
@@ -247,8 +240,8 @@ int main(int argc, char **argv) {
     if (fd < 0) die("open /dev/mem (run as root)");
 
     // O_SYNC gives Device-nGnRnE: strongly ordered, no gathering, no caching.
-    // That is exactly what we want here - it removes any need for cache
-    // maintenance against the CVA6, which has no cacheable regions either.
+    // This removes any need for cache maintenance against the CVA6, which has no
+    // cacheable regions either.
     volatile uint32_t *ap = mmap(NULL, RK_PS_MAP_BYTES, PROT_READ | PROT_WRITE,
                                  MAP_SHARED, fd, (off_t)RK_PS_APERTURE_BASE);
     if (ap == MAP_FAILED) die("mmap of the HPM0 aperture");
@@ -272,7 +265,7 @@ int main(int argc, char **argv) {
                PROBE_PATTERN, (unsigned long long)RK_PS_APERTURE_BASE, got,
                got == PROBE_PATTERN ? "PS side OK" : "MISMATCH");
         printf("           now confirm from the dev host that CVA6 0x%08llX reads %08X:\n"
-               "             util/reckon/run_test.sh  (or: monitor mdw 0x%08llX in GDB)\n",
+               "             monitor mdw 0x%08llX  (GDB over JTAG)\n",
                (unsigned long long)RK_CVA6_DRAM_BASE, PROBE_PATTERN,
                (unsigned long long)RK_CVA6_DRAM_BASE);
         return got == PROBE_PATTERN ? 0 : 1;
@@ -374,17 +367,16 @@ int main(int argc, char **argv) {
            g_data, hdr.n_halves, hdr.samples_per_half, hdr.payload_bytes >> 10,
            hdr.checksum);
 
-    // Touch one word before committing to 512 KiB of stores. If the fabric is
-    // not there, this is where we find out and say so, instead of freezing
-    // halfway through the payload with nothing on the console.
+    // Touch one word before committing to 512 KiB of stores: if the fabric is
+    // not there, this is where it is reported, rather than halfway through the
+    // payload.
     probe_or_explain(&mb[RK_MBOX_W_PROBE], PROBE_PATTERN);
 
     // A magic still standing means the PREVIOUS handover was never consumed -
-    // the firmware timed out, or was never started. That is a loaded gun: the
-    // next run to reach STEP 2 will consume that stale handover and stream the
-    // old buffer while looking perfectly healthy. The checksum does not catch
-    // it, because the payload and the checksum it is compared against both come
-    // from the same stale feed. Only the sequence number can tell them apart.
+    // the firmware timed out, or was never started. The next run to reach STEP 2
+    // would consume it and stream the old buffer while reporting success: the
+    // checksum cannot catch that, since payload and checksum both come from the
+    // same stale feed. Only the sequence number distinguishes them.
     uint32_t stale = rd32(&mb[RK_MBOX_W_MAGIC]);
     if (stale == RK_MBOX_MAGIC) {
         fprintf(stderr,
@@ -461,7 +453,7 @@ int main(int argc, char **argv) {
 
     if (!g_wait) {
         printf("         : --no-wait, not polling for the ack. Now run on the dev host:\n"
-               "             util/reckon/run_test.sh sw/tests/reckon_stream_ps.dram.elf\n");
+               "             util/reckon/reckon.py start\n");
         free(src);
         return 0;
     }
@@ -499,7 +491,7 @@ int main(int argc, char **argv) {
     uint32_t epoch  = rd32(&mb[RK_MBOX_W_ACK_EPOCH]);
 
     // stream_status layout, stream_ctrl_fsm2.sv (also documented in
-    // guides/RECKON_WORKFLOW.md section 9).
+    // README.md §6).
     printf("ack      : rc=%u seq=%u (sent %u) after %.1f s\n",
            rc, aseq, g_seq, now_s() - t0);
     printf("status   : %08X  ver=%02X fill_cnt=%u consumed=%u "

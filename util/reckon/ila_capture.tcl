@@ -10,7 +10,9 @@
 # NOTE: close the Vivado GUI Hardware Manager first (it owns the JTAG target).
 proc env_or {k d} { return [expr {[info exists ::env($k)] ? $::env($k) : $d}] }
 
-set REPO         [env_or REPO         "/home/bevilacqua/pierochs/cheshire"]
+# Repo root: taken from the environment (config.sh exports it), else derived
+# from this script's own location -- util/reckon/<script>.tcl -> two levels up.
+set REPO         [env_or REPO [file normalize [file join [file dirname [info script]] .. ..]]]
 set URL          [env_or HW_SERVER_URL "localhost:3121"]
 set DEVICE       [env_or DEVICE       "xczu9_0"]
 set ILA_CELL     [env_or ILA_CELL     "i_ila"]
@@ -105,9 +107,9 @@ if {![string match -nocase "*wait*" $st] && ![string match -nocase "*arm*" $st]}
   puts "ILA_PATH=$ilaf"
 } else {
   puts "########################################################################"
-  puts "## TRIGGER NON SCATTATO (status=$st)."
-  puts "## L'evento '$TRIG_PROBE $TRIG_VALUE' NON e' avvenuto durante il run."
-  puts "## E' un risultato: quel segnale non si e' mai attivato."
+  puts "## TRIGGER DID NOT FIRE (status=$st)."
+  puts "## The event '$TRIG_PROBE $TRIG_VALUE' did NOT happen during the run."
+  puts "## That is itself a finding: that signal never asserted."
   puts "########################################################################"
 }
 close_hw_target

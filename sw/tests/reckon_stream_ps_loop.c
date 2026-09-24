@@ -1,7 +1,3 @@
-// Copyright 2026 ETH Zurich and University of Bologna.
-// Licensed under the Apache License, Version 2.0, see LICENSE for details.
-// SPDX-License-Identifier: Apache-2.0
-//
 // DDR4 -> BRAM -> ReckOn streaming with the dataset from the PS, IN A LOOP: one
 // JTAG start serves any number of epochs, each one a separate handover from the
 // PS. Everything done per epoch - bring-up, validation, streaming, measurement,
@@ -38,9 +34,6 @@
 // Uncomment to run the epochs with e-prop enabled (DO_EPROP, reckon_stream.h).
 // It makes the consumer slower; with the weights unprogrammed it tests the
 // transport under that load, not the learning.
-
-
-
 //#define RECKON_DO_EPROP 7u
 
 #include <stdint.h>

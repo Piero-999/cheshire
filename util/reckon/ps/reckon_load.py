@@ -1,61 +1,37 @@
 #!/usr/bin/env python3
-"""Load the Cheshire bitstream into the PL from PS Linux, with PYNQ.
+"""Load the Cheshire bitstream into the PL from PS Linux.
 
-Runs on the ZCU102 PS. This is the first step of the flow: the board holds the
-bitstream and the training set, the PS configures the fabric over PCAP, writes
-the samples into PL DDR4 (reckon_feed), and only then does JTAG come in from
-outside to load and start the CVA6 firmware.
+Runs on the ZCU102 PS. First step of the flow: the board holds the bitstream and
+the training set, the PS configures the fabric over PCAP, writes the samples into
+PL DDR4 (reckon_feed), and only then does JTAG come in from outside to load and
+start the CVA6 firmware. See README.md section 5.1 in the repository root.
 
-Configuring from here rather than from Vivado on the dev host is worth more than
-convenience:
-  * it removes the ordering hazard. The PS must never touch 0xA0000000 with an
-    unprogrammed fabric - maxihpm0_fpd_aclk comes from the PL clk_wiz, so that
-    write would never complete and the ARM core would hang in the store, with no
-    timeout to save it. If the PS did the configuring, that cannot happen.
-  * a fresh PCAP download resets every clock domain including ReckOn's clk15, so
-    the VIO reset that used to be needed for a clean run is not.
-  * the daily loop no longer needs Vivado or hw_server at all - only OpenOCD on
-    the Olimex, which is a different TAP. Vivado stays for ILA/VIO work.
+Two paths to the same PCAP. The default strips the .bit header, byte-swaps the
+32-bit words and hands the result to the kernel FPGA manager - which is what PYNQ
+does internally as well. It is the default because it depends on nothing but the
+kernel: no venv, no environment variables, no XRT.
 
-What PYNQ actually does is strip the .bit header, byte-swap the 32-bit words and
-hand the result to the kernel FPGA manager. This script does that directly, which
-on this board is not a fallback but the only way that works - see below.
+--pynq uses PYNQ instead. It needs two things that a non-login shell does not
+have, and without them PYNQ fails with "AttributeError: 'NoneType' object has no
+attribute 'xclOpen'" / "RuntimeError: No Devices Found", which looks like a
+missing XRT and is not:
+  * XILINX_XRT in the environment (set by /etc/profile.d/xrt_setup.sh, which
+    `ssh host 'cmd'` never sources; the libraries themselves are in /usr/lib);
+  * the venv interpreter /usr/local/share/pynq-venv/bin/python3 - the system
+    python3 cannot import pynq (missing pydantic).
+--pynq satisfies both by re-executing itself, so it works from a plain ssh too.
 
-MEASURED ON THIS BOARD (2026-07-28, PynqLinux 3.0 "Belfast", kernel
-5.15.19-xilinx-v2022.1, PYNQ 3.0.1): BOTH paths work. PYNQ's
-Bitstream(...).download() configures the PL in 1.8 s, and the PS->DDR4 bridge is
-intact afterwards - probed and run end to end. fpga_manager stays the default
-only because it needs nothing but the kernel: no venv, no environment, no XRT.
-
-A warning, because this cost real time. PYNQ 3.0's ZynqMP class is EmbeddedDevice,
-which derives from XrtDevice and calls xrt.xclOpen() in its constructor. If you run
-it from a NON-LOGIN shell you get
-
-    AttributeError: 'NoneType' object has no attribute 'xclOpen'
-    RuntimeError: No Devices Found
-
-and it looks exactly like XRT is missing. It is not. pynq/_3rdparty/xrt.py loads
-the library only `if "XILINX_XRT" in os.environ`, and that variable is set by
-/etc/profile.d/xrt_setup.sh - which a plain `ssh host 'cmd'` never sources. The
-libraries are right there in /usr/lib. Two requirements, then:
-  * XILINX_XRT=/usr in the environment (a login shell has it);
-  * the venv interpreter, /usr/local/share/pynq-venv/bin/python3 - the system
-    python3 cannot import pynq at all (missing pydantic).
---pynq below satisfies both by re-executing itself, so it works either way.
-
-One more thing worth knowing: PYNQ 3.0's download() calls set_axi_port_width(),
-which rewrites the FPD AFI registers from the design metadata. With a bare .bit the
-parser is the default xclbin, it has no ps_name and the call returns immediately -
-so it does NOT disturb the 128-bit HPM0_FPD setting this design relies on (checked
-in the source, and confirmed by the bridge still working after a PYNQ download).
-Anyone adding an .hwh must re-check that: getting it wrong breaks the PS->DDR4
+Caveat for anyone adding an .hwh: PYNQ 3.0's download() calls set_axi_port_width(),
+which rewrites the FPD AFI registers from the design metadata. With a bare .bit
+the call returns immediately and leaves the 128-bit HPM0_FPD setting this design
+relies on untouched. With metadata present it may not, and it breaks the PS->DDR4
 bridge silently.
 
 Usage (on the board, as root):
-    reckon_load.py cheshire.zcu102.bit               # fpga_manager, the working path
+    reckon_load.py cheshire.zcu102.bit               # fpga_manager, the default
     reckon_load.py cheshire.zcu102.bit --pynq        # try PYNQ first, fall back
     reckon_load.py cheshire.zcu102.bit --check       # parse and report, load nothing
-Usage (on the dev host, to sanity-check a .bit before shipping it):
+Usage (on the dev host, to check a .bit before shipping it):
     reckon_load.py cheshire.zcu102.bit --check
 """
 

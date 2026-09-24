@@ -4,12 +4,15 @@
 proc env_or {k d} { return [expr {[info exists ::env($k)] ? $::env($k) : $d}] }
 set URL    [env_or HW_SERVER_URL "localhost:3121"]
 set DEVICE [env_or DEVICE        "xczu9_0"]
-set BIT    [env_or BIT "/home/bevilacqua/pierochs/cheshire/target/xilinx/out/cheshire.zcu102.bit"]
-set LTX    [env_or LTX "/home/bevilacqua/pierochs/cheshire/target/xilinx/out/cheshire.zcu102.ltx"]
+# Repo root: taken from the environment (config.sh exports it), else derived
+# from this script's own location -- util/reckon/program.tcl -> two levels up.
+set REPO   [env_or REPO [file normalize [file join [file dirname [info script]] .. ..]]]
+set BIT    [env_or BIT "$REPO/target/xilinx/out/cheshire.zcu102.bit"]
+set LTX    [env_or LTX "$REPO/target/xilinx/out/cheshire.zcu102.ltx"]
 
 open_hw_manager
 if {[catch {connect_hw_server -url $URL} e]} { puts "connect_hw_server: $e" }
-if {[catch {open_hw_target} e]}             { puts "open_hw_target: $e -- GUI HW Manager aperto? Chiudilo." ; exit 1 }
+if {[catch {open_hw_target} e]}             { puts "open_hw_target: $e -- is the Vivado GUI Hardware Manager open? Close it." ; exit 1 }
 current_hw_device [get_hw_devices $DEVICE]
 
 puts "== Programming $DEVICE with $BIT =="

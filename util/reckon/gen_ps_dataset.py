@@ -2,8 +2,8 @@
 """Emit the DDR4 dataset image that the PS writes over M_AXI_HPM0_FPD.
 
 The firmware used to build this image itself, in reckon_prepare_ddr() /
-rk_pack_half() (sw/include/reckon/reckon_stream.h).  That step is the placeholder
-the HANDOFF calls "the last development step": the PS owns it now.  Rather than
+rk_pack_half() (sw/include/reckon/reckon_stream.h).  That step was a placeholder:
+the PS owns it now.  Rather than
 re-implementing the packing on the PS - where it could silently drift from the
 firmware's idea of the layout - this script replicates rk_pack_half() ONCE, here,
 and emits the finished image.  The PS producer then only has to copy bytes.

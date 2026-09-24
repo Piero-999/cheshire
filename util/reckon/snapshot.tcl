@@ -3,7 +3,9 @@
 # Useful when the event triggers never fire: shows where the streaming froze.
 #   source config.sh ; vivado -mode batch -source snapshot.tcl
 proc env_or {k d} { return [expr {[info exists ::env($k)] ? $::env($k) : $d}] }
-set REPO     [env_or REPO         "/home/bevilacqua/pierochs/cheshire"]
+# Repo root: taken from the environment (config.sh exports it), else derived
+# from this script's own location -- util/reckon/<script>.tcl -> two levels up.
+set REPO     [env_or REPO [file normalize [file join [file dirname [info script]] .. ..]]]
 set URL      [env_or HW_SERVER_URL "localhost:3121"]
 set DEVICE   [env_or DEVICE       "xczu9_0"]
 set ILA_CELL [env_or ILA_CELL     "i_ila"]
