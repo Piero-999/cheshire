@@ -30,8 +30,8 @@ machinery, which produced the evidence in the documentation and takes no part in
 | `summarize.sh` | FLAT / CHANGED summary of a capture CSV |
 | `out/` | captures and Vivado logs (`capture_<ts>.csv`, `.ila`, `vivado.log`) — not committed |
 
-`run_test.sh` and `build_sw.sh` are two lines each: they call `reckon.py` and exist because the
-Vivado scripts start a run and a rebuild by those names.
+`run_test.sh` and `build_sw.sh` are two lines each that call `reckon.py`: `ila_capture.tcl` and
+`snapshot.tcl` start a run through the first, `debug.sh` and `deploy.sh` rebuild through the second.
 
 ## Prerequisite for anything that uses Vivado
 
@@ -46,9 +46,10 @@ needs `--program`.
 
 ## Knobs that are not documented elsewhere
 
-- The VIO reset drives the real `rst_n`, so it resets ReckOn's `clk_15` domain as well. Use
-  `debug.sh --program` only when the bitstream changed, or when the state looks wedged. In the
-  PS-first flow it is not needed at all: every round starts from a fresh PCAP configuration.
+- The VIO reset drives the real `rst_n`, so it resets ReckOn's `clk_15` domain as well. In the
+  PS-first flow it is not needed: every round starts from a fresh PCAP configuration.
+- `debug.sh --program` reprograms the debug build: needed after `reckon.py load`, as above, and
+  when the state looks wedged.
 - `probe_out` map in `ila_capture.tcl`: `0` = reset, `1` = `boot_mode`, `2` = `boot_mode_sel`,
   `3` = `uart_sel`. If the VIO reset is skipped with a name error, list the real names with
   `get_hw_probes -of_objects [get_hw_vios]`.

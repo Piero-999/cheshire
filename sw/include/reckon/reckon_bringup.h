@@ -172,7 +172,7 @@ static inline void rk_publish(unsigned slot, uint32_t v) {
     fence();
 }
 
-// Step codes (README.md §6). Each overwrites the previous one on scratch3, so a
+// Step codes (README.md §6.7). Each overwrites the previous one on scratch3, so a
 // hang leaves the marker of the step it died in.
 typedef enum {
     RECKON_STEP_BOOT    = 0xB00B0010u,

@@ -46,7 +46,7 @@ module aer_decoder #(
 
   output wire [11:0] infer_count_o,
 
-  // Streaming DDR4->BRAM, driven by stream_ctrl_fsm (same clock domain)
+  // Streaming DDR4->BRAM, driven by stream_ctrl_fsm2 (same clock domain)
   output wire ram_addr_half_o,     // MSB of RAM_ADDR: 0 = lower half, 1 = upper half
   input  wire data_exhausted_i,    // data over and no half granted -> at END_B go to END_E
   input  wire stream_stall_i       // freeze BRAM reads: the requested half is not ready

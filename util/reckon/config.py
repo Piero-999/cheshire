@@ -35,7 +35,7 @@ OPENOCD_CFG = Path(_env("OPENOCD_CFG", REPO / "util/openocd.olimex.tcl"))
 BIT = Path(_env("BIT", REPO / "target/xilinx/out/cheshire.zcu102.bit"))
 
 # The streaming tests. ELF_CVA6 and ELF_IDMA differ only in the DDR4 -> BRAM
-# transport; ELF_PS takes the dataset from the PS (README.md section 5.3) and
+# transport; ELF_PS takes the dataset from the PS (README.md section 4.3) and
 # ELF_LOOP serves one epoch per handover (README.md section 5.10).
 ELF_CVA6 = Path(_env("ELF_CVA6", REPO / "sw/tests/reckon_stream_cva6.dram.elf"))
 ELF_IDMA = Path(_env("ELF_IDMA", REPO / "sw/tests/reckon_stream_idma.dram.elf"))

@@ -125,25 +125,25 @@ module cheshire_top_xilinx import cheshire_pkg::*; #(
     ret.RtcFreq         = 1000000;
     //ret.AxiExtNumSlv    = 1;
 
-    // LLC in bypass, DDR4 connessa direttamente
-    ret.LlcNotBypass      = 0;   // <-- bypass LLC (default è 1)
-    ret.LlcOutConnect     = 1;   // <-- mantieni la porta output verso DRAM
+    // LLC bypassed, DDR4 connected directly
+    ret.LlcNotBypass      = 0;   // <-- bypass the LLC (default is 1)
+    ret.LlcOutConnect     = 1;   // <-- keep the output port towards DRAM
     ret.LlcOutRegionStart = 'h8000_0000;
     ret.LlcOutRegionEnd   = 64'h1_0000_0000;
-    // 2 porte slave esterne:
-    //   [0] = axi_layer (register file, controllo ReckOn)
-    //   [1] = BRAM bridge (accesso dati BRAM 256KB via AXI)
+    // 2 external slave ports:
+    //   [0] = axi_layer (register file, ReckOn control)
+    //   [1] = BRAM bridge (data access to the 256 KB BRAM over AXI)
     //
     ret.AxiExtNumSlv    = 2;
     ret.AxiExtNumRules  = 2;
 
-    // Porta 0: axi_layer registri — 64 KB @ 0x4000_0000
+    // Port 0: axi_layer registers - 64 KB @ 0x4000_0000
     ret.AxiExtRegionIdx  [0] = 0;
     ret.AxiExtRegionStart[0] = 64'h4000_0000;
     ret.AxiExtRegionEnd  [0] = 64'h4001_0000;
 
-    // Porta 1: BRAM ReckOn — 256 KB @ 0x4800_0000
-    // BRAM ha ADDR_WIDTH=16 → 2^16 = 65536 words × 4 byte = 256 KB
+    // Port 1: ReckOn BRAM - 256 KB @ 0x4800_0000
+    // The BRAM has ADDR_WIDTH=16 -> 2^16 = 65536 words x 4 bytes = 256 KB
     ret.AxiExtRegionIdx  [1] = 1;
     ret.AxiExtRegionStart[1] = 64'h4800_0000;
     ret.AxiExtRegionEnd  [1] = 64'h4804_0000;

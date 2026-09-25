@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Rebuild the streaming ELFs — now a view onto reckon.py.
+# Rebuild the streaming ELFs, through reckon.py build. debug.sh and deploy.sh
+# call it before a capture.
 #
-# The flow is driven from Python; this name survives because debug.sh and
-# deploy.sh rebuild through it before a capture, and those are left as they were.
-#
-# Usage: build_sw.sh [elf-path]   — unchanged.
+# Usage: build_sw.sh [elf-path]
 HERE="$(dirname "$(readlink -f "$0")")"
 [ $# -ge 1 ] && exec "$HERE/reckon.py" build --elf "$1"
 exec "$HERE/reckon.py" build

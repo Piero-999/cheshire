@@ -137,7 +137,7 @@ static void parse_args(int argc, char **argv) {
         else if (!strcmp(argv[i], "--seq") && i + 1 < argc)    g_seq = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--timeout") && i + 1 < argc) g_timeout = strtod(argv[++i], NULL);
         else if (!strcmp(argv[i], "--verify"))                 g_verify = 1;
-        else if (!strcmp(argv[i], "--no-verify"))              g_verify = 0;  // now the default
+        else if (!strcmp(argv[i], "--no-verify"))              g_verify = 0;  // the default
         else if (!strcmp(argv[i], "--no-wait"))                g_wait = 0;
         else if (!strcmp(argv[i], "--probe"))                  g_probe = 1;
         else if (!strcmp(argv[i], "--status"))                 g_status = 1;
@@ -448,7 +448,7 @@ int main(int argc, char **argv) {
     uint32_t epoch  = rd32(&mb[RK_MBOX_W_ACK_EPOCH]);
 
     // stream_status layout, stream_ctrl_fsm2.sv (also documented in
-    // README.md §6).
+    // README.md §6.3).
     printf("ack      : rc=%u seq=%u (sent %u) after %.1f s\n",
            rc, aseq, g_seq, now_s() - t0);
     printf("status   : %08X  ver=%02X fill_cnt=%u consumed=%u "
