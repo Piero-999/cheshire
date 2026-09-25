@@ -181,8 +181,8 @@ def main():
     for b in range(n_halves):
         words, packed, used = pack_half(samples, lens, (b * samples_per_half) % n_ref,
                                         samples_per_half, half_words)
-        # Same guard as reckon_prepare_ddr(): a short half leaves ReckOn waiting at
-        # END_B for an EOS that was never written, i.e. a hang instead of an error.
+        # Same guard as reckon_prepare_ddr(): a short half would leave ReckOn
+        # waiting at END_B for an EOS that was never written.
         if packed != samples_per_half:
             die(f"half {b}: only {packed}/{samples_per_half} samples fit ({used} words). "
                 f"Lower SAMPLES_PER_HALF in {stream_p}.")

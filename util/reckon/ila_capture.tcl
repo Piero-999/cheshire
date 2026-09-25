@@ -7,7 +7,7 @@
 #   6. collect the capture -> CSV + .ila in $OUT_DIR
 #
 # Run via debug.sh, or: vivado -mode batch -source ila_capture.tcl
-# NOTE: close the Vivado GUI Hardware Manager first (it owns the JTAG target).
+# Needs the JTAG target free: see util/reckon/README.md.
 proc env_or {k d} { return [expr {[info exists ::env($k)] ? $::env($k) : $d}] }
 
 # Repo root: taken from the environment (config.sh exports it), else derived
@@ -32,7 +32,7 @@ open_hw_manager
 if {[catch {connect_hw_server -url $URL} e]} { puts "connect_hw_server: $e (already connected?)" }
 if {[catch {open_hw_target} e]}             { puts "open_hw_target: $e -- is the Vivado GUI Hardware Manager open? Close it." ; exit 1 }
 current_hw_device [get_hw_devices $DEVICE]
-# Associate probe definitions (.ltx) FIRST so probe names resolve even when we
+# Associate probe definitions (.ltx) first so probe names resolve even when we
 # are not programming (otherwise get_hw_probes returns nothing).
 set_property PROBES.FILE      $LTX [current_hw_device]
 set_property FULL_PROBES.FILE $LTX [current_hw_device]
@@ -107,9 +107,8 @@ if {![string match -nocase "*wait*" $st] && ![string match -nocase "*arm*" $st]}
   puts "ILA_PATH=$ilaf"
 } else {
   puts "########################################################################"
-  puts "## TRIGGER DID NOT FIRE (status=$st)."
-  puts "## The event '$TRIG_PROBE $TRIG_VALUE' did NOT happen during the run."
-  puts "## That is itself a finding: that signal never asserted."
+  puts "## Trigger did not fire (status=$st)."
+  puts "## The event '$TRIG_PROBE $TRIG_VALUE' did not happen during the run."
   puts "########################################################################"
 }
 close_hw_target

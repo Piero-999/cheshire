@@ -167,8 +167,8 @@ def main():
                                               info.get("version", "?")))
     print("  data   {} bytes".format(info["length"]))
 
-    # The design targets xczu9eg on the ZCU102; loading a bitstream for another
-    # part is refused by the FPGA manager anyway, but saying so here is clearer.
+    # The design targets xczu9eg on the ZCU102: a bitstream for another part is
+    # refused here, with a message, before the FPGA manager sees it.
     part = info.get("part", "")
     if part and not part.startswith("xczu9"):
         die("part {} is not the ZCU102's xczu9eg - wrong bitstream".format(part))
@@ -198,9 +198,9 @@ def main():
         die("fpga_manager reports '{}', expected 'operating' - the PL is NOT configured. "
             "Do not let anything touch 0xA0000000.".format(state))
 
-    # clk_wiz lock is microseconds; the DDR4 MIG recalibrates after every
-    # reconfiguration and that is the slow part. reckon_feed re-probes the
-    # aperture anyway before writing, so this is belt and braces.
+    # clk_wiz locks in microseconds; the DDR4 MIG recalibrates after every
+    # reconfiguration and takes longer. reckon_feed also probes the aperture
+    # before writing.
     time.sleep(args.settle)
     print("PL configured. Next: reckon_feed to push the dataset into DDR4.")
     return 0

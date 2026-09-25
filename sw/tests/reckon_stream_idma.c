@@ -1,9 +1,8 @@
 // DDR4 -> BRAM -> ReckOn streaming, transport = iDMA block copy.
 //
 // The production transport. It differs from reckon_stream_cva6.c only in
-// reckon_transport_copy() below: the iDMA is a separate AXI master that bursts,
-// ~1.04 cycles per word against the CVA6's 91.79. sys_dma_blk_memcpy() returns
-// when the transfer has completed on the AXI side.
+// reckon_transport_copy() below: the iDMA, a separate AXI master that bursts.
+// sys_dma_blk_memcpy() returns when the transfer has completed on the AXI side.
 
 #include <stdint.h>
 

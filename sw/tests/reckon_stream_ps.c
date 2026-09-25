@@ -11,7 +11,7 @@
 //     PS        : util/reckon/reckon.py feed   (reckon_feed, on the board)
 //     dev host  : util/reckon/reckon.py start
 
-#define RECKON_DATA_FROM_PS 1  // must precede reckon_stream.h
+#define RECKON_DATA_FROM_PS 1  // read by reckon_stream.h
 
 #include <stdint.h>
 
@@ -52,7 +52,7 @@ int main(void) {
     // STEP 2 - TAKE THE DATA FROM THE PS, outside every measurement window.
     reckon_step(RECKON_STEP_DDR, "TAKE DATA FROM PS");
     if (reckon_wait_ddr_from_ps(&clk, &seq)) {
-        reckon_ps_ack(seq, 2, &res);  // tell the producer instead of leaving it polling
+        reckon_ps_ack(seq, 2, &res);  // tell the producer: rc = 2
         return 1;
     }
 

@@ -12,11 +12,9 @@
 // It ends after RECKON_LOOP_IDLE_MS without a handover, or when the core is halted
 // over JTAG. Its state is in mailbox words 13 and 14, readable over JTAG.
 
-#define RECKON_DATA_FROM_PS 1  // must precede reckon_stream.h
+#define RECKON_DATA_FROM_PS 1  // read by reckon_stream.h
 
-// Uncomment to run the epochs with e-prop enabled (DO_EPROP, reckon_stream.h).
-// It makes the consumer slower; with the weights unprogrammed it tests the
-// transport under that load, not the learning.
+// e-prop on every epoch (DO_EPROP, README.md §4.3):
 //#define RECKON_DO_EPROP 7u
 
 #include <stdint.h>
@@ -101,8 +99,7 @@ int main(void) {
         reckon_result_t   res = {0};
         uint32_t          seq = 0;
 
-        // STEP 1 - bring-up before every epoch: the warm-restart contract,
-        //          applied between epochs instead of between ELF loads.
+        // STEP 1 - bring-up before every epoch (reckon_bringup.h).
         reckon_step(RECKON_STEP_BRINGUP, "BRING UP RECKON");
         if (reckon_bringup(&clk, &base)) { rc = 1; break; }
 
@@ -123,7 +120,7 @@ int main(void) {
             continue;
         }
 
-        // STEP 3 - stream, exactly as the one-shot firmware does.
+        // STEP 3 - stream, as in the one-shot firmware.
         reckon_stream_init(&stream, &clk, &base);
         int erc = reckon_stream_run(&stream, &res);
 

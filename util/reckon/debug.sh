@@ -13,7 +13,7 @@
 #                          (default: new_batch_fsm eq1'b1)
 #     --pos N              trigger position in the 16384-sample window (default 1024)
 #
-# Prereq: close the Vivado GUI Hardware Manager (it owns the JTAG target).
+# Needs the JTAG target free: see util/reckon/README.md.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/config.sh"
 

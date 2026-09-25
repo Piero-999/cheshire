@@ -160,10 +160,10 @@ class Board:
             self._askpass = None
 
     def check_link(self):
-        """The board must be on a directly attached link, not behind a gateway.
+        """Check that the board is on a directly attached link.
 
         A gateway in the route means the adapter has lost its address and
-        something else is answering at that address; a ping cannot tell.
+        something else is answering at that address, which a ping would not reveal.
         """
         if self._link_checked:
             return
@@ -316,9 +316,8 @@ def cmd_build(args, board):
 
     for elf in targets:
         say("Building %s" % elf.name)
-        # sw.mk does not track header dependencies, so a stale object would
-        # survive an edited header and the next run would measure the previous
-        # firmware. Two seconds of compilation is cheaper than that.
+        # sw.mk does not track header dependencies (README.md section 4.1):
+        # remove the object and the ELF so both are rebuilt.
         source = Path(str(elf).replace(".dram.elf", ""))
         for stale in (source.with_suffix(".o"), elf):
             if stale.exists():
@@ -441,7 +440,7 @@ def cmd_feed(args, board):
 
     The sequence number is generated here, not on the board, so that afterwards
     the firmware can be asked which handover it consumed. Without it, a run that
-    picked up a stale one looks exactly like a healthy one.
+    picked up a stale one would look like a healthy one.
     """
     board.check_link()
     # Seconds since the epoch increase on their own and survive a restart of
@@ -508,7 +507,7 @@ def cmd_start(args, board):
 def cmd_loop(args, board):
     """Start the looping firmware, or read the state of a running session.
 
-    Reading halts the core for a moment: between epochs, never during one.
+    Reading halts the core for a moment (README.md section 5.10).
     """
     elf = config.ELF_LOOP
     if not elf.exists():

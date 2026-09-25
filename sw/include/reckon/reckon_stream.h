@@ -8,20 +8,17 @@
 //     0 (default)  reckon_prepare_ddr()      the CVA6 builds the dataset itself
 //     1            reckon_wait_ddr_from_ps() the PS wrote it; we wait and check
 //
-// The transport that moves one BRAM half is NOT implemented here: each test
+// The transport that moves one BRAM half is not implemented here: each test
 // provides it, which is the only difference between reckon_stream_cva6.c and
 // reckon_stream_idma.c.
 //
 //     void reckon_transport_copy(uint64_t dst, uint64_t src, uint64_t nbytes);
 //     const char *const reckon_transport_name;
 //
-// Measurement discipline:
-//  * between NEW_EPOCH and EPOCH_DONE nothing is printed and nothing is written
-//    to the scratch registers (a printf + flush costs ~4 ms, more than ReckOn
-//    takes per half); reckon_report() publishes everything afterwards;
-//  * STEP 2 is outside every window;
-//  * the streaming state lives in a caller-owned struct, not in globals, so
-//    nothing depends on .bss having been zeroed (README.md §4.1).
+// Between NEW_EPOCH and EPOCH_DONE the code prints nothing and writes no scratch
+// register; reckon_report() publishes everything afterwards (README.md §4.2).
+// The streaming state lives in a caller-owned struct, so it does not depend on
+// .bss (README.md §4.1).
 
 #pragma once
 
@@ -32,8 +29,8 @@
 
 // Where the samples in DDR4 come from. 0 = the CVA6 packs them from the copy of
 // the reference dataset baked into the ELF; 1 = the PS wrote them over
-// M_AXI_HPM0_FPD and we only wait for its mailbox and validate. Define it to 1 in
-// the test TU *before* including this header (sw/tests/reckon_stream_ps.c).
+// M_AXI_HPM0_FPD and we only wait for its mailbox and validate. The PS variants
+// define it to 1 before including this header.
 #ifndef RECKON_DATA_FROM_PS
 #define RECKON_DATA_FROM_PS  0
 #endif
@@ -59,18 +56,17 @@
 //        starting offset (at most 32225 words, 97.6-98.3% full).
 #define SAMPLES_PER_HALF  37u
 
-// Bounded waits. The hardware handshakes are sub-millisecond; these only exist
-// so a desync reports itself instead of hanging until the JTAG run window ends.
+// Bounded waits: the handshakes take well under a millisecond, so reaching one
+// of these limits means a desync, which is reported.
 #define RECKON_GRANT_TIMEOUT_MS  500u
 #define RECKON_EPOCH_TIMEOUT_MS  5000u
 
-// How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only). In the
-// normal flow the PS writes first and the magic is already there. To wait longer,
-// raise the JTAG run window (PS_SLEEP_MS) as well.
+// How long STEP 2 waits for the PS mailbox (RECKON_DATA_FROM_PS only); in the
+// normal flow the magic is already there (README.md §5.4).
 #define RECKON_PS_WAIT_TIMEOUT_MS  5000u
 
 // What each epoch writes into DO_EPROP, ReckOn's 3-bit learning enable. 0 keeps
-// the network in inference, as in every measurement so far; 7, ReckOn's own
+// the network in inference; 7, ReckOn's own
 // reset value, enables the update on all three weight sets. The weights are only
 // programmed with RECKON_PROGRAM_WEIGHTS, so 7 alone is a transport test.
 #ifndef RECKON_DO_EPROP
@@ -89,12 +85,12 @@ extern const char *const reckon_transport_name;
 // STEP 2 - get the dataset into DDR4
 // ---------------------------------------------------------------------------
 #if !RECKON_DATA_FROM_PS
-// Outside every measurement window. Packs SAMPLES_PER_HALF consecutive reference samples back to back starting
-// from the global sample index `first` (the pool of REF_N_SAMPLES real samples
-// is cycled), then pads to the half boundary with no-op (code 0) words that
-// ReckOn reads and discards. Returns the number of samples actually packed:
-// fewer than SAMPLES_PER_HALF means the half overflowed, which would leave
-// ReckOn waiting at END_B for an EOS that is not there.
+// Outside every measurement window. Packs SAMPLES_PER_HALF consecutive reference
+// samples back to back, starting from the global sample index `first` (the pool
+// of REF_N_SAMPLES real samples is cycled), then pads to the half boundary with
+// no-op (code 0) words that ReckOn reads and discards. Returns the number of
+// samples packed: fewer than SAMPLES_PER_HALF means the half overflowed, which
+// would leave ReckOn waiting at END_B for an EOS that is not there.
 static inline unsigned rk_pack_half(volatile uint32_t *blk, unsigned first, unsigned *used_words) {
     unsigned idx = 0, packed = 0;
     for (unsigned n = 0; n < SAMPLES_PER_HALF; n++) {
@@ -188,8 +184,8 @@ static inline int reckon_wait_ddr_from_ps(const reckon_clocks_t *clk, uint32_t *
     uint32_t want_sum   = mb[RK_MBOX_W_SAMPLE_SUM];
 #endif
 
-    // Consume-once: the mailbox survives an ELF reload, and the next run must not
-    // find this magic again.
+    // Consume-once: clearing the magic keeps the next run, after an ELF reload,
+    // from taking this handover again.
     mb[RK_MBOX_W_MAGIC] = 0;
     fence();
 
@@ -260,14 +256,14 @@ typedef struct {
 
 typedef struct {
     uint32_t fill_one;        // cycles for one half-fill
-    uint32_t fill_sum_epoch;  // cumulative fill cycles INSIDE the epoch window
+    uint32_t fill_sum_epoch;  // cumulative fill cycles inside the epoch window
     uint32_t epoch;           // NEW_EPOCH -> EPOCH_DONE, cycles
     uint32_t cons[4];         // per-half consume intervals, cycles
     unsigned n_cons;
     uint32_t infer_count;
     uint32_t fill_cnt;        // relative to the bring-up baseline
     uint32_t consumed;        // relative to the bring-up baseline
-    uint32_t underrun;        // 1 only if the flag went up during THIS run
+    uint32_t underrun;        // 1 only if the flag went up during this run
     uint32_t overrun;
     uint32_t sticky_inherited;  // a flag was already set at bring-up
     uint32_t status_raw;
@@ -279,7 +275,7 @@ static inline void reckon_stream_init(reckon_stream_t *s, const reckon_clocks_t 
     s->core_freq      = clk->core_freq;
     s->base           = base;
     s->shadow         = base->shadow;
-    s->fills          = base->fill_cnt_base;  // latch, never assume 0: see reckon_bringup.h
+    s->fills          = base->fill_cnt_base;  // latched at bring-up (reckon_bringup.h)
     s->dram_word_off  = 0;
     s->n_fills        = 0;
     s->in_epoch       = 0;
@@ -295,10 +291,8 @@ static inline void rk_fill_half(reckon_stream_t *s, unsigned h) {
     uint64_t src = DRAM_BASE_ADDR + s->dram_word_off * 4u;
     reckon_transport_copy(dst, src, HALF_BYTES);
 
-    // The writes above are posted: fence() orders them but does not guarantee
-    // they reached the BRAM. Reading back the last word written does, because
-    // cva6's axi_adapter issues no read while a write still lacks its B response.
-    // Without it ReckOn can be granted a half that has not landed (README.md §2.4).
+    // Read back the last word written: the writes are posted, and this read
+    // completes only after them (README.md §2.4).
     volatile uint32_t sink = *(volatile uint32_t *)(dst + HALF_BYTES - 4u);
     (void)sink;
     fence();
@@ -307,9 +301,8 @@ static inline void rk_fill_half(reckon_stream_t *s, unsigned h) {
     if (s->n_fills == 0) s->fill_one = dt;
     s->n_fills++;
     // Only the fills inside the epoch window are accumulated, so fill_sum and
-    // the epoch duration describe the SAME interval and their ratio means
-    // something. The priming fill happens before NEW_EPOCH and is reported
-    // separately as fill_one.
+    // the epoch duration cover the same interval. The priming fill, before
+    // NEW_EPOCH, is reported separately as fill_one.
     if (s->in_epoch) s->fill_sum_epoch += dt;
 
     s->dram_word_off += HALF_WORDS;
@@ -341,8 +334,8 @@ static inline int reckon_stream_run(reckon_stream_t *s, reckon_result_t *r) {
     reckon_wr(OUT_REG2_N_SAMPLES, SAMPLES_PER_HALF * N_HALVES_TOTAL);
     reckon_wr(OUT_REG3_DO_EPROP, RECKON_DO_EPROP);  // 0 unless a test asks for e-prop
 
-    // --- prime half 0: it must be full before NEW_EPOCH, and it is NOT part of
-    //     the epoch window (in_epoch is still 0) ---
+    // --- prime half 0: filled before NEW_EPOCH, outside the epoch window
+    //     (in_epoch is still 0) ---
     if (rk_grant_half(s, 0)) {
         reckon_fail("timeout waiting for fill_cnt after the priming grant");
         return 1;
@@ -350,8 +343,7 @@ static inline int reckon_stream_run(reckon_stream_t *s, reckon_result_t *r) {
 
     reckon_step(RECKON_STEP_ARMED, "half 0 primed, ReckOn armed");
 
-    // Everything below this line is inside the measured window: no printf, no
-    // UART flush, no scratch writes until the window closes.
+    // From here to EPOCH_DONE: the measured window.
     reckon_step(RECKON_STEP_STREAM, "START STREAM");
 
     uint64_t t_epoch0 = get_mcycle();
@@ -362,12 +354,10 @@ static inline int reckon_stream_run(reckon_stream_t *s, reckon_result_t *r) {
     unsigned next = 1, halves_sent = 1;
     int exhausted_sent = 0, failed = 0;
 
-    // Timestamp every increment of `consumed`, i.e. every BATCH_DONE. This
-    // MEASURES what ReckOn takes per half instead of deriving it from an epoch
-    // model. Caveat: the edge is observed by this polling loop, which stops
-    // polling while it fills a half, so an edge falling inside a fill is
-    // reported late by up to one fill time (negligible with the iDMA at
-    // ~0.7 ms, coarse with the CVA6 copy at ~60 ms).
+    // Timestamp every increment of `consumed` (every BATCH_DONE): the time ReckOn
+    // takes per half. The loop does not poll while it fills a half, so an edge
+    // that falls inside a fill is seen up to one fill later (~0.7 ms with the
+    // iDMA, ~60 ms with the CPU copy).
     uint32_t cons_prev = s->base->consumed_base;
     uint64_t t_prev    = t_epoch0;
     unsigned ci        = 0;

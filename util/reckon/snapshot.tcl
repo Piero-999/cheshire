@@ -1,4 +1,4 @@
-# snapshot.tcl - run the test, THEN immediate-capture the frozen post-run state
+# snapshot.tcl - run the test, then immediate-capture the frozen post-run state
 # of every ILA probe (trigger = all-don't-care => fires immediately on arm).
 # Useful when the event triggers never fire: shows where the streaming froze.
 #   source config.sh ; vivado -mode batch -source snapshot.tcl

@@ -4,22 +4,16 @@
 // STEP 1 of the flow (see reckon_stream.h for steps 2 and 3):
 //
 //     reckon_platform_init()   clock calibration + UART, must come first
-//     reckon_check_version()   is stream_ctrl_fsm2 really in this bitstream?
+//     reckon_check_version()   checks the stream_ctrl_fsm2 version marker
 //     reckon_bringup()         SPI config + decoder reset + baseline latch
 //
-// This header DEFINES the ReckOn configuration tables (reckon_params_vec.h and
-// the weight matrices), so include it from exactly one translation unit.
+// This header defines the ReckOn configuration tables (reckon_params_vec.h and
+// the weight matrices); each test includes it once.
 //
-// Warm restart: reckon.py start reloads the ELF without resetting the SoC, so
-// three pieces of hardware state survive the previous run, and
-// reckon_bringup() handles them:
-//  1. the decoder parks in END_E with EPOCH_DONE high: it is sent STOP first;
-//  2. fill_cnt and consumed are free-running counters: they are latched, not
-//     assumed to be zero;
-//  3. underrun and overrun are sticky: a baseline is latched and the flags are
-//     reported relative to it.
-// out_reg[7] is write-only, so its shadow is re-synchronised by writing a known
-// value; if half ownership is still dirty, the run refuses to start.
+// reckon_bringup() starts a run from the state the previous one left, since the
+// SoC is not reset between runs: it sends STOP to bring the decoder out of END_E,
+// latches the free-running counters and the sticky flags as a baseline, and
+// rewrites the write-only out_reg[7] to a known value.
 
 #pragma once
 
@@ -33,9 +27,8 @@
 #include "sw/device/lib/dif/dif_spi_host.h"
 #include "util.h"
 
-// ReckOn network configuration, ported from Barocci's "works firmware"
-// (branch reckon_cheshire_bad, commit 033eba1). These headers *define* the SPI
-// config vector and the weight matrices.
+// ReckOn network configuration, from Barocci's firmware: these headers define the
+// SPI config vector and the weight matrices.
 #include "reckon/reckon_params_vec.h"  // reckon_spi_conf[], N_*_NEUR, KAPPA, ALPHALSB, THRESHOLD
 #include "reckon/winp.h"               // int8_t winp[N_INP][N_REC]
 #include "reckon/wout.h"               // int8_t wout[N_REC][N_OUT]
@@ -66,16 +59,16 @@
 #define OUT_REG4_NEW_EPOCH     0x40u  // W, bit0, strobe
 #define OUT_REG5_RESERVED      0x48u  // W, ignored by HW
 #define OUT_REG6_TEST          0x50u  // W, bit0, level
-#define OUT_REG7_STREAM_CTRL   0x58u  // W, see SC_* below - NOT READABLE
+#define OUT_REG7_STREAM_CTRL   0x58u  // W, see SC_* below; not readable
 
-// out_reg[7] bit layout (xilinx_zcu102_reckon_chs_top.sv:855-865).
+// out_reg[7] bit layout (xilinx_zcu102_reckon_chs_top.sv).
 // bit0 is edge-detected into STOP_strb inside reckon_axi_top.v.
 #define SC_STOP_BIT       0u
 #define SC_FILL_TGL0_BIT  1u
 #define SC_FILL_TGL1_BIT  2u
 #define SC_EXHAUSTED_BIT  3u
 
-// in_reg[3] (stream_status) bit layout, produced by stream_ctrl_fsm2.sv:163-172
+// in_reg[3] (stream_status) bit layout, produced by stream_ctrl_fsm2.sv
 #define SS_OWNER_MASK      0x3u  // bit0/bit1 = owner[0]/owner[1]
 #define SS_READ_HALF_BIT   2u
 #define SS_NEED_FILL_BIT   4u
@@ -94,7 +87,7 @@ static inline volatile uint32_t *reckon_reg(uint32_t off) {
 }
 
 // The ReckOn register file is MMIO in the weakly ordered, non-idempotent window
-// [0x4000_0000, 0x8000_0000): every access needs its own fence.
+// [0x4000_0000, 0x8000_0000), so every access below is fenced.
 static inline uint32_t reckon_rd(uint32_t off) {
     fence();
     return *reckon_reg(off);
@@ -105,7 +98,7 @@ static inline void reckon_wr(uint32_t off, uint32_t v) {
     fence();
 }
 
-// Decoded view of in_reg[3], so callers stop open-coding shifts.
+// Decoded view of in_reg[3].
 typedef struct {
     uint32_t raw;
     uint32_t version;
@@ -140,17 +133,17 @@ static inline reckon_status_t reckon_status(void) {
 // Every number a test publishes goes to a Cheshire scratch register, plain MMIO
 // that JTAG can read. The slot map util/reckon/reckon.py reads:
 //
-//   s0 0x03000000  cycles of ONE half-fill
+//   s0 0x03000000  cycles of one half fill
 //   s1 0x03000004  epoch duration (NEW_EPOCH -> EPOCH_DONE)
 //   s2 0x03000008  reserved: crt0.S _exit writes (main_ret << 1) | 1 here
 //   s3 0x0300000c  step marker (RECKON_STEP_*)
 //   s4 0x03000010  consume interval, half 0
 //   s5 0x03000014  consume interval, half 1
-//   s6 0x03000018  cumulative fill cycles INSIDE the epoch window
+//   s6 0x03000018  cumulative fill cycles inside the epoch window
 //   s7 0x0300001c  consume interval, half 2
 //   s8 0x03000020  consume interval, half 3
 //   s9 0x03000024  core cycles measured in 100 ms of RTC (clock check)
-//   sA 0x03000028  stream_status latched at BRING-UP (the inherited baseline)
+//   sA 0x03000028  stream_status latched at bring-up (the inherited baseline)
 //   sB 0x0300002c  stream_status at EPOCH_DONE
 //
 // sB against sA tells whether a flag belongs to this run or was inherited.
@@ -164,7 +157,7 @@ static inline reckon_status_t reckon_status(void) {
 #define RK_S_BASE_STAT  10u
 #define RK_S_FIN_STAT   11u
 
-// Consume-interval slots, deliberately skipping s2 and s6.
+// Consume-interval slots (s2 and s6 hold other values).
 static const unsigned rk_s_cons[4] = {4u, 5u, 7u, 8u};
 
 static inline void rk_publish(unsigned slot, uint32_t v) {
@@ -184,8 +177,8 @@ typedef enum {
     RECKON_STEP_ERROR   = 0xB00B00EEu,
 } reckon_step_t;
 
-// Announce a step on the UART and on scratch3. Never inside a timed window: a
-// printf + flush costs ~4 ms, longer than ReckOn takes to consume a half.
+// Announce a step on the UART and on scratch3, outside the timed window
+// (README.md §4.2).
 static inline void reckon_step(reckon_step_t code, const char *msg) {
     rk_publish(RK_S_STEP, (uint32_t)code);
     printf("[STEP %08X] %s\n", (uint32_t)code, msg);
@@ -218,8 +211,7 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 
     rk_publish(RK_S_STEP, (uint32_t)RECKON_STEP_BOOT);
 
-    // 100 ms of wall time, derived from the RTC frequency actually reported by
-    // the hardware instead of assuming a 1 MHz RTC.
+    // 100 ms of wall time, from the RTC frequency the hardware reports.
     uint64_t ticks_100ms = clk.rtc_freq / 10ull;
     if (ticks_100ms == 0) ticks_100ms = 1;
 
@@ -241,7 +233,7 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 //   32-bit command word, MSB first: {R/Wb(1), code[2:0], num_write[11:0], addr[15:0]}
 //     R/Wb = 0 for write. code = 3'b000 (cfg) addresses the registers below.
 //   followed by `num_write` 32-bit data words, MSB first.
-//   Each cfg register occupies exactly one data word (no address auto-increment),
+//   Each cfg register occupies one data word (no address auto-increment),
 //   so multi-register programming = one full frame per register.
 // ReckOn's SPI slave takes CS0 (spi_cs_soc[0]); the chip select resynchronises
 // its frame counter on every transaction.
@@ -257,7 +249,7 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 #define RECKON_SPI_ADDR_LABEL_DELAY      37u
 #define RECKON_SPI_ADDR_CYCLES_PER_TICK  64u
 
-// Streaming timing override applied inside the config window (Barocci ships 4/4).
+// Streaming timing override, applied inside the config window.
 #define RECKON_TICK_PERIOD  15u  // clk15 cycles per algorithmic tick
 #define RECKON_LABEL_DELAY  10u  // ticks
 
@@ -267,8 +259,8 @@ static inline reckon_clocks_t reckon_platform_init(void) {
 #define RECKON_PROGRAM_WEIGHTS  0
 
 #define RK_MAX(a, b)  (((a) > (b)) ? (a) : (b))
-// Barocci's CEIL macro as it is: it returns n or n+1 and does not divide by m.
-// Kept identical so the num_write geometry matches the working firmware.
+// n + 1 when m does not divide n, n otherwise: the definition of the firmware
+// this configuration comes from, which sets the num_write geometry.
 #define RK_CEIL(n, m)  ((((n) % (m)) != 0) ? ((n) + 1) : (n))
 
 // One SPI_slave frame: a 32-bit command/address word followed by `ndata` 32-bit
@@ -305,8 +297,8 @@ static inline int reckon_spi_cfg_write(const dif_spi_host_t *host, uint16_t addr
     return reckon_spi_frame(host, cmd, &value, 1);
 }
 
-// Full ReckOn network programming, ported from Barocci reckon-chs-ESA.c. All
-// SRAM writes must happen with SPI_EN_CONF asserted (open first, close last).
+// Full ReckOn network programming. The SRAM writes happen with SPI_EN_CONF
+// asserted: the config window is opened first and closed last.
 static inline int reckon_program_network(const dif_spi_host_t *host) {
     uint32_t data[64] __attribute__((unused));
 
@@ -378,8 +370,8 @@ static inline int reckon_program_network(const dif_spi_host_t *host) {
         }
     }
 
-    // --- output weights (wout), code 0b101 (with N_OUT=2 this ports Barocci's
-    //     quirk: num_rw computes to 0, so only the SRAM address word is sent) ---
+    // --- output weights (wout), code 0b101 (with N_OUT=2, num_rw is 0: only the
+    //     SRAM address word is sent) ---
     {
         uint32_t num_rw = (RK_CEIL(N_OUT_NEUR, 4) >> 2) & 0xFFF;
         for (int n = 0; n < N_REC_NEUR; n++) {
@@ -437,7 +429,7 @@ typedef struct {
     uint32_t overrun_base;
 } reckon_baseline_t;
 
-// Checks that the bitstream on the FPGA really contains stream_ctrl_fsm2.
+// Checks that the bitstream contains stream_ctrl_fsm2 (version marker 0xA6).
 static inline int reckon_check_version(void) {
     uint32_t v = reckon_status().version;
     printf("stream_status version marker: 0x%02X (expect 0x%02X)\n", v, SS_VERSION_FSM2);

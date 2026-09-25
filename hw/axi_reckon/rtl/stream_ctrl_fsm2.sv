@@ -1,4 +1,4 @@
-// stream_ctrl_fsm2 — DDR4->BRAM->ReckOn streaming control (one batch = one BRAM half).
+// stream_ctrl_fsm2: DDR4->BRAM->ReckOn streaming control (one batch = one BRAM half).
 //
 // Single owner of the streaming handshake state. The CVA6 fills a BRAM half and
 // toggles fill_tgl[h]; ReckOn releases the half it was reading at END_B. The only
@@ -211,7 +211,7 @@ module stream_ctrl_fsm2 #(
   end
 
 `ifndef SYNTHESIS
-  // The CVA6 must never write a half ReckOn owns.
+  // A fill never lands on a half ReckOn owns.
   assert property (@(posedge acc_clk_i) disable iff (!acc_rst_ni)
     fill_pulse[0] |-> !owner_q[0])
     else $error("stream_ctrl_fsm2: fill_tgl[0] on a half still owned by ReckOn");

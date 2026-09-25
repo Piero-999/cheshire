@@ -2,9 +2,6 @@
 //
 // The slow reference, compared with reckon_stream_idma.c under the same
 // instrumentation: the two files differ only in reckon_transport_copy() below.
-// Measured at 91.79 cycles per 32-bit word: nothing is cacheable, so every load
-// and store is a single-beat AXI transaction, and the bypass adapter does not
-// overlap a read with the previous write. The iDMA bursts and reaches ~1.04.
 
 #include <stdint.h>
 
@@ -20,8 +17,7 @@ void reckon_transport_copy(uint64_t dst, uint64_t src, uint64_t nbytes) {
     volatile uint32_t *d = (volatile uint32_t *)(uintptr_t)dst;
     volatile uint32_t *s = (volatile uint32_t *)(uintptr_t)src;
     unsigned nwords = (unsigned)(nbytes / 4u);
-    // An explicit volatile 32-bit loop, kept as it was measured: the compiler must
-    // not widen or unroll it, and with no I$ every extra instruction is a DDR4 read.
+    // One volatile 32-bit load and store per word.
     for (unsigned i = 0; i < nwords; i++)
         d[i] = s[i];
 }

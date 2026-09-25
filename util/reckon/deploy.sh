@@ -3,7 +3,7 @@
 # (No ILA arming; use debug.sh for instrumented runs.)
 #
 # Usage: deploy.sh [--no-build] [--no-run]
-# Prereq: close the Vivado GUI Hardware Manager (it owns the JTAG target).
+# Needs the JTAG target free: see util/reckon/README.md.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/config.sh"
 

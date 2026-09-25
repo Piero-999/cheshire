@@ -5,11 +5,8 @@
 // the shared contract (addresses, mailbox, checksum, dataset file) is
 // reckon_ps_mbox.h.
 //
-// Two constraints:
-//  1. The PL must be programmed first (reckon_load.py): with an unprogrammed
-//     fabric a store to the aperture never completes and the core hangs in it.
-//  2. No memcpy() onto the aperture: it is Device memory, where unaligned
-//     accesses fault. Everything here uses aligned 32-bit accesses.
+// It writes the aperture with aligned 32-bit accesses only, once the PL is
+// configured (README.md §5.1, §5.3).
 //
 // Usage:
 //     reckon_feed [--data FILE] [--seq N] [--verify] [--no-wait]
@@ -68,7 +65,7 @@ static void fail(const char *fmt, ...) {
 }
 
 // ---------------------------------------------------------------------------
-// Device-memory accessors. Aligned 32-bit only (constraint 2 at the top).
+// Aligned 32-bit accessors for the Device-memory aperture.
 // ---------------------------------------------------------------------------
 static inline void wr32(volatile uint32_t *p, uint32_t v) { *p = v; }
 static inline uint32_t rd32(const volatile uint32_t *p) { return *p; }
@@ -83,10 +80,9 @@ static inline void drain(const volatile uint32_t *p) {
 // ---------------------------------------------------------------------------
 // Liveness probe: turn a silent hang into a diagnosis
 // ---------------------------------------------------------------------------
-// With the PL unconfigured, or the DDR4 still calibrating, a store to the
-// aperture never completes and nothing times out. So the probe runs in a child
-// process: if it does not come back, the parent reports it; the child stays
-// stuck until the board is rebooted.
+// The probe runs in a child process: with the PL unconfigured, or the DDR4 still
+// calibrating, a store to the aperture never completes, and the parent reports
+// it.
 static int probe_with_timeout(volatile uint32_t *cell, uint32_t pattern, double timeout_s) {
     pid_t pid = fork();
     if (pid < 0) die("fork for the liveness probe");
@@ -386,7 +382,7 @@ int main(int argc, char **argv) {
     }
 
     // -----------------------------------------------------------------------
-    // Hand over: fields first, MAGIC last. On Device memory the stores cannot be
+    // Hand over: fields first, magic last. On Device memory the stores cannot be
     // reordered, but the read-back also guarantees they have left the PS before
     // the CVA6 can observe the magic.
     // -----------------------------------------------------------------------

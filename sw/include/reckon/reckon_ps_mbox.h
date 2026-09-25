@@ -39,7 +39,7 @@
 // Mailbox layout (32-bit words, little endian on both sides)
 // ---------------------------------------------------------------------------
 //   word  byte  dir      field
-//     0   0x00  PS->CVA6 magic            RK_MBOX_MAGIC, written LAST
+//     0   0x00  PS->CVA6 magic            RK_MBOX_MAGIC, written last
 //     1   0x04  PS->CVA6 seq              incremented by the producer each epoch
 //     2   0x08  PS->CVA6 n_halves         must match N_HALVES_TOTAL
 //     3   0x0c  PS->CVA6 samples_per_half must match SAMPLES_PER_HALF
@@ -75,8 +75,8 @@
 // ---------------------------------------------------------------------------
 // Dataset file header (util/reckon/gen_ps_dataset.py -> reckon_feed.c)
 // ---------------------------------------------------------------------------
-// The file is this 32-byte header followed by the payload exactly as it goes into
-// DDR4: the producer copies it and does not pack anything.
+// The file is this 32-byte header followed by the payload as it goes into DDR4:
+// the producer copies it and does not pack anything.
 #define RK_DSFILE_MAGIC    0x524B4453u  // 'R','K','D','S' as a LE u32
 #define RK_DSFILE_VERSION  1u
 

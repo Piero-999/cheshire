@@ -1,4 +1,4 @@
-# `util/reckon` — the loop on the dev host
+# `util/reckon`: the loop on the dev host
 
 These drive the board from the development machine. The system they drive is described in the
 [root README](../../README.md); the commands themselves are listed in its section 5.
@@ -28,7 +28,7 @@ machinery, which produced the evidence in the documentation and takes no part in
 | `program.tcl` | Vivado: program `.bit` and `.ltx` |
 | `deploy.sh` | build, program, run |
 | `summarize.sh` | FLAT / CHANGED summary of a capture CSV |
-| `out/` | captures and Vivado logs (`capture_<ts>.csv`, `.ila`, `vivado.log`) — not committed |
+| `out/` | captures and Vivado logs (`capture_<ts>.csv`, `.ila`, `vivado.log`), not committed |
 
 `run_test.sh` and `build_sw.sh` are two lines each that call `reckon.py`: `ila_capture.tcl` and
 `snapshot.tcl` start a run through the first, `debug.sh` and `deploy.sh` rebuild through the second.
@@ -55,4 +55,4 @@ needs `--program`.
   `get_hw_probes -of_objects [get_hw_vios]`.
 - Vivado's tcl property names differ between versions; the first run on a new install may need a
   small patch in `ila_capture.tcl`. The log is `out/vivado.log`.
-- When a trigger never fires, `debug.sh` says so explicitly rather than producing an empty capture.
+- When a trigger never fires, `debug.sh` reports it instead of saving an empty capture.

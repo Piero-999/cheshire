@@ -1,6 +1,6 @@
 # program.tcl - program the ZCU102 with the current bitstream + probes (.ltx).
 # Run headless: vivado -mode batch -source program.tcl
-# NOTE: close the Vivado GUI Hardware Manager first (it owns the JTAG target).
+# Needs the JTAG target free: see util/reckon/README.md.
 proc env_or {k d} { return [expr {[info exists ::env($k)] ? $::env($k) : $d}] }
 set URL    [env_or HW_SERVER_URL "localhost:3121"]
 set DEVICE [env_or DEVICE        "xczu9_0"]
